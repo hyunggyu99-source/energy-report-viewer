@@ -1,0 +1,274 @@
+/* =============================================
+ * Energy 3D Viewer — 메인 스타일시트
+ * 섹션: 전역 변수, 레이아웃, 컴포넌트
+ * ============================================= */
+
+/* ── 전역 CSS 변수 (테마 색상) ── */
+:root {
+  --bg: #0f172a; --panel: #1e293b; --panel-border: #334155;
+  --text: #e2e8f0; --text-dim: #94a3b8;
+  --primary: #3b82f6; --primary-light: #60a5fa;
+  --accent: #f59e0b; --success: #10b981; --danger: #ef4444;
+  --radius: 10px;
+}
+
+/* ── 리셋 & 기본 설정 ── */
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',-apple-system,sans-serif; background:var(--bg); color:var(--text); overflow:hidden; height:100vh; }
+
+/* ── 전체 레이아웃 (사이드바 + 뷰포트) ── */
+.app { display:flex; height:100vh; }
+.sidebar { width:360px; min-width:360px; background:var(--panel); border-right:1px solid var(--panel-border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; z-index:10; }
+.viewport { flex:1; position:relative; }
+
+/* ── 사이드바 헤더 ── */
+.sidebar-header { padding:16px 20px; border-bottom:1px solid var(--panel-border); }
+.sidebar-header h1 { font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:8px; }
+.sidebar-header p { font-size:.75rem; color:var(--text-dim); margin-top:4px; }
+
+/* ── 파일 드래그 영역 ── */
+.drop-section { border-bottom:1px solid var(--panel-border); }
+.drop-section > .panel-body { padding:12px 20px; }
+.drop-section h3 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); margin-bottom:6px; }
+.drop-box {
+  border:2px dashed var(--panel-border); border-radius:var(--radius); padding:16px; text-align:center;
+  cursor:pointer; transition:all .2s; min-height:60px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+}
+.drop-box:hover, .drop-box.drag-over { border-color:var(--primary); background:rgba(59,130,246,.08); }
+.drop-box .icon { font-size:1.3rem; }
+.drop-box .label { font-size:.78rem; color:var(--text-dim); }
+.drop-box .filename { font-size:.75rem; color:var(--success); font-weight:600; }
+.drop-box.loaded { border-color:var(--success); border-style:solid; background:rgba(16,185,129,.06); }
+.drop-box.error { border-color:var(--danger); border-style:solid; background:rgba(239,68,68,.06); }
+
+/* ── 매칭 상태 배지 ── */
+.match-status { padding:6px 10px; border-radius:6px; font-size:.72rem; margin-top:4px; }
+.match-status.good { background:rgba(16,185,129,.12); color:var(--success); }
+.match-status.partial { background:rgba(245,158,11,.12); color:var(--accent); }
+.match-status.none { background:rgba(148,163,184,.1); color:var(--text-dim); }
+
+/* ── 설정 컨트롤 영역 ── */
+.controls { border-bottom:1px solid var(--panel-border); }
+.controls > .panel-body { padding:12px 20px; }
+.control-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.control-row label { font-size:.75rem; color:var(--text-dim); min-width:72px; }
+.control-row select, .control-row input[type=range] { flex:1; background:var(--bg); color:var(--text); border:1px solid var(--panel-border); border-radius:6px; padding:4px 8px; font-size:.75rem; }
+.control-row select { cursor:pointer; }
+.control-row input[type=range] { cursor:pointer; padding:0; }
+.control-row input[type=checkbox] { width:auto; flex:none; cursor:pointer; }
+
+/* ── Space 목록 ── */
+.space-list { flex:1; overflow-y:auto; padding:8px 12px; }
+.space-list::-webkit-scrollbar { width:5px; }
+.space-list::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:3px; }
+.space-item {
+  padding:8px 10px; border-radius:7px; margin-bottom:3px; cursor:pointer;
+  border:1px solid transparent; transition:all .15s; position:relative; overflow:hidden;
+}
+.space-item:hover { background:rgba(255,255,255,.04); border-color:var(--panel-border); }
+.space-item.selected { background:rgba(59,130,246,.1); border-color:var(--primary); }
+.space-item .name { font-size:.8rem; font-weight:600; }
+.space-item .meta { font-size:.68rem; color:var(--text-dim); margin-top:1px; }
+.space-item .energy-bar { position:absolute; left:0; bottom:0; height:3px; border-radius:0 0 7px 7px; transition:width .3s; }
+.space-item .value { font-size:.68rem; font-weight:700; float:right; margin-top:-14px; }
+
+/* ── 오른쪽 상세 패널 (뷰포트 위 플로팅) ── */
+.right-panel {
+  position:absolute; top:12px; right:12px; bottom:80px; width:320px;
+  background:rgba(30,41,59,.92); backdrop-filter:blur(12px);
+  border:1px solid var(--panel-border); border-radius:12px;
+  z-index:8; display:none; overflow-y:auto; padding:16px;
+}
+.right-panel.visible { display:block; }
+.right-panel h3 { font-size:.9rem; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.right-panel .close-btn { margin-left:auto; cursor:pointer; background:none; border:none; color:var(--text-dim); font-size:1rem; }
+.right-panel .close-btn:hover { color:var(--text); }
+.detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.detail-cell { background:rgba(15,23,42,.6); border-radius:6px; padding:6px 8px; }
+.detail-cell .dl { font-size:.62rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; }
+.detail-cell .dv { font-size:.85rem; font-weight:700; margin-top:1px; }
+.detail-cell.wide { grid-column:1/-1; }
+.htm-section { margin-top:12px; padding-top:12px; border-top:1px solid var(--panel-border); }
+.htm-section h4 { font-size:.75rem; font-weight:600; color:var(--primary-light); margin-bottom:6px; }
+.htm-metric { display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:.72rem; }
+.htm-metric .metric-label { color:var(--text-dim); }
+.htm-metric .metric-val { font-weight:700; }
+
+/* ── HTM 보고서 칩 ── */
+.htm-chips { display:flex; gap:4px; margin-top:4px; flex-wrap:wrap; }
+.htm-chip {
+  display:inline-flex; align-items:center; gap:3px; background:rgba(59,130,246,.15);
+  border:1px solid rgba(59,130,246,.3); border-radius:12px; padding:2px 8px;
+  font-size:.65rem; color:var(--primary-light); cursor:pointer;
+}
+.htm-chip.active { background:rgba(59,130,246,.3); border-color:var(--primary); }
+.htm-chip .chip-x { cursor:pointer; opacity:.6; }
+.htm-chip .chip-x:hover { opacity:1; }
+
+/* ── 에너지 분석 섹션 ── */
+.analysis-section { border-bottom:1px solid var(--panel-border); display:none; }
+.analysis-section.visible { display:block; }
+.analysis-section > .panel-body { padding:10px 20px; }
+.analysis-section h3 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--accent); margin-bottom:6px; }
+.compare-row { display:flex; justify-content:space-between; font-size:.72rem; padding:2px 0; border-bottom:1px solid rgba(51,65,85,.3); }
+.compare-row .cr-label { color:var(--text-dim); }
+.compare-row .cr-val { font-weight:600; }
+.compare-row .cr-val.up { color:var(--danger); }
+.compare-row .cr-val.down { color:var(--success); }
+.compare-row .cr-diff { font-size:.65rem; margin-left:6px; }
+
+/* ── 에너지 사용량 행 ── */
+.eu-row { display:flex; justify-content:space-between; align-items:center; font-size:.7rem; padding:3px 0; border-bottom:1px solid rgba(51,65,85,.2); }
+.eu-label { display:flex; align-items:center; gap:5px; color:var(--text-dim); }
+.eu-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+.eu-val { font-weight:600; font-variant-numeric:tabular-nums; }
+.eu-bar-bg { flex:1; height:6px; background:rgba(51,65,85,.4); border-radius:3px; margin:0 8px; min-width:30px; }
+.eu-bar { height:100%; border-radius:3px; transition:width .3s; }
+.summary-card { background:rgba(15,23,42,.5); border-radius:6px; padding:8px 10px; margin-bottom:6px; }
+.summary-card-title { font-size:.68rem; font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:5px; }
+.summary-kpi { font-size:1.1rem; font-weight:700; color:var(--primary-light); margin-bottom:2px; }
+.summary-sub { font-size:.65rem; color:var(--text-dim); }
+.analysis-tabs { display:flex; gap:2px; margin-bottom:8px; }
+.analysis-tab { flex:1; padding:4px 6px; font-size:.65rem; text-align:center; cursor:pointer; border-radius:5px; background:rgba(51,65,85,.3); color:var(--text-dim); border:1px solid transparent; transition:all .15s; }
+.analysis-tab.active { background:rgba(59,130,246,.15); border-color:var(--primary); color:var(--primary-light); }
+.analysis-tab:hover { background:rgba(59,130,246,.1); }
+
+/* ── 단위 배지 ── */
+.unit-badge { font-size:.55rem; padding:1px 4px; border-radius:3px; background:rgba(59,130,246,.15); color:var(--primary-light); margin-left:3px; vertical-align:super; }
+
+/* ── 뷰포트 도구 모음 ── */
+.viewport-toolbar { position:absolute; top:12px; left:50%; transform:translateX(-50%); display:flex; gap:6px; z-index:5; flex-wrap:wrap; }
+.vp-btn {
+  background:rgba(30,41,59,.85); backdrop-filter:blur(8px); border:1px solid var(--panel-border);
+  color:var(--text); padding:6px 12px; border-radius:7px; cursor:pointer; font-size:.75rem;
+  display:flex; align-items:center; gap:4px; transition:all .15s;
+}
+.vp-btn:hover { background:rgba(59,130,246,.2); border-color:var(--primary); }
+.vp-btn.active { background:rgba(59,130,246,.25); border-color:var(--primary); color:var(--primary-light); }
+
+/* ── 색상 범례 ── */
+.legend {
+  position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+  background:rgba(30,41,59,.9); backdrop-filter:blur(8px); border:1px solid var(--panel-border);
+  border-radius:10px; padding:8px 16px; z-index:5; display:none;
+}
+.legend.visible { display:flex; align-items:center; gap:10px; }
+.legend-title { font-size:.68rem; color:var(--text-dim); font-weight:600; text-transform:uppercase; }
+.legend-bar { width:180px; height:12px; border-radius:6px; }
+.legend-labels { display:flex; justify-content:space-between; width:180px; }
+.legend-labels span { font-size:.62rem; color:var(--text-dim); }
+
+/* ── 툴팁 (마우스 호버) ── */
+.tooltip {
+  position:absolute; pointer-events:none; background:rgba(15,23,42,.95); backdrop-filter:blur(8px);
+  border:1px solid var(--panel-border); border-radius:7px; padding:8px 12px;
+  font-size:.72rem; z-index:20; display:none; max-width:260px;
+}
+.tooltip .tt-name { font-weight:700; font-size:.8rem; margin-bottom:3px; }
+.tooltip .tt-row { display:flex; justify-content:space-between; gap:14px; color:var(--text-dim); }
+.tooltip .tt-val { color:var(--text); font-weight:600; }
+
+/* ── 상태 바 ── */
+.status-bar {
+  position:absolute; bottom:16px; right:16px; background:rgba(30,41,59,.9);
+  border:1px solid var(--panel-border); border-radius:8px; padding:6px 12px;
+  font-size:.7rem; color:var(--text-dim); z-index:5;
+}
+
+/* ── 환영 오버레이 ── */
+.welcome-overlay {
+  position:absolute; inset:0; background:rgba(15,23,42,.7); backdrop-filter:blur(4px);
+  display:flex; align-items:center; justify-content:center; z-index:15;
+}
+.welcome-card {
+  background:var(--panel); border:1px solid var(--panel-border); border-radius:16px;
+  padding:36px 44px; text-align:center; max-width:420px;
+}
+.welcome-card h2 { font-size:1.2rem; margin-bottom:6px; }
+.welcome-card p { font-size:.82rem; color:var(--text-dim); line-height:1.6; }
+.welcome-card .step { display:flex; align-items:flex-start; gap:10px; text-align:left; margin-top:12px; }
+.welcome-card .step-num { background:var(--primary); color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.68rem; font-weight:700; flex-shrink:0; }
+.welcome-card .step-text { font-size:.78rem; color:var(--text-dim); }
+.welcome-card .step-text strong { color:var(--text); }
+
+/* ── IP/SI · 한국어/EN 토글 ── */
+.settings-row { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+.toggle-group { display:flex; gap:1px; background:var(--bg); border-radius:6px; padding:2px; }
+.toggle-btn { padding:3px 8px; border-radius:4px; border:none; background:transparent; color:var(--text-dim); font-size:.65rem; cursor:pointer; font-weight:600; transition:all .15s; font-family:inherit; }
+.toggle-btn.active { background:var(--primary); color:white; }
+.toggle-btn:hover:not(.active) { background:rgba(59,130,246,.15); }
+
+/* ── 접기/펼치기 패널 ── */
+.panel-section { border-bottom:1px solid var(--panel-border); }
+.panel-header {
+  display:flex; align-items:center; padding:8px 14px; cursor:pointer; user-select:none; gap:6px;
+  transition:background .15s;
+}
+.panel-header:hover { background:rgba(255,255,255,.03); }
+.panel-header .panel-chevron { font-size:.55rem; color:var(--text-dim); transition:transform .25s; flex-shrink:0; width:12px; text-align:center; }
+.panel-header.collapsed .panel-chevron { transform:rotate(-90deg); }
+.panel-header .panel-title { font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); flex:1; }
+.panel-header .drag-handle { cursor:grab; color:var(--panel-border); font-size:.75rem; opacity:.5; padding:0 2px; }
+.panel-header .drag-handle:hover { opacity:1; color:var(--text-dim); }
+.panel-body { transition:max-height .3s ease, opacity .25s ease, padding .2s ease; overflow:hidden; }
+.panel-body.collapsed { max-height:0 !important; opacity:0; padding-top:0 !important; padding-bottom:0 !important; }
+.panel-section.dragging { opacity:.4; }
+.panel-section.drag-over-above { box-shadow:inset 0 2px 0 var(--primary); }
+.panel-section.drag-over-below { box-shadow:inset 0 -2px 0 var(--primary); }
+
+/* ── Revit 스타일 속성 패널 (뷰포트 좌측 플로팅) ── */
+.props-panel {
+  position:absolute; left:12px; top:12px; bottom:80px; width:300px;
+  background:rgba(30,41,59,.95); backdrop-filter:blur(12px);
+  border:1px solid var(--panel-border); border-radius:12px;
+  z-index:9; overflow-y:auto; overflow-x:hidden;
+  display:none; transition:width .25s ease;
+}
+.props-panel.visible { display:block; }
+.props-panel.expanded { width:520px; }
+.props-panel::-webkit-scrollbar { width:5px; }
+.props-panel::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:3px; }
+.props-header {
+  display:flex; align-items:center; gap:6px; padding:8px 12px;
+  background:rgba(59,130,246,.1); border-bottom:1px solid var(--panel-border);
+  position:sticky; top:0; z-index:2; backdrop-filter:blur(8px);
+}
+.props-header .props-icon { font-size:1rem; }
+.props-header .props-type-select {
+  flex:1; background:var(--bg); border:1px solid var(--panel-border);
+  border-radius:5px; color:var(--text); padding:3px 8px; font-size:.72rem; font-family:inherit;
+}
+.props-header .props-expand, .props-header .props-close {
+  background:none; border:1px solid var(--panel-border); color:var(--text-dim);
+  font-size:.75rem; cursor:pointer; padding:3px 6px; border-radius:4px; transition:all .15s;
+}
+.props-header .props-expand:hover, .props-header .props-close:hover {
+  background:rgba(59,130,246,.15); color:var(--text); border-color:var(--primary);
+}
+.props-header .props-expand.active {
+  background:rgba(59,130,246,.2); color:var(--primary-light); border-color:var(--primary);
+}
+.props-cat-header {
+  background:rgba(59,130,246,.12); padding:4px 14px; font-size:.68rem; font-weight:700;
+  color:var(--primary-light); text-transform:uppercase; letter-spacing:.04em;
+  border-bottom:1px solid rgba(59,130,246,.15); cursor:pointer; user-select:none;
+  display:flex; align-items:center; gap:5px;
+}
+.props-cat-header:hover { background:rgba(59,130,246,.18); }
+.props-cat-header .cat-chevron { font-size:.5rem; transition:transform .2s; }
+.props-cat-header.collapsed .cat-chevron { transform:rotate(-90deg); }
+.props-table { width:100%; border-collapse:collapse; }
+.props-table.collapsed { display:none; }
+.props-table td {
+  padding:3px 14px; font-size:.7rem; border-bottom:1px solid rgba(51,65,85,.25);
+  vertical-align:top;
+}
+.props-table td:first-child { color:var(--text-dim); width:42%; white-space:nowrap; }
+.props-table td:last-child { color:var(--text); font-weight:500; word-break:break-word; }
+.props-table tr:hover { background:rgba(59,130,246,.04); }
+.props-empty { padding:16px; text-align:center; color:var(--text-dim); font-size:.75rem; }
+
+/* ── 확장 모드 속성 테이블 ── */
+.props-panel.expanded .props-table td:first-child { width:35%; }
+.props-panel.expanded .props-table td { font-size:.72rem; }

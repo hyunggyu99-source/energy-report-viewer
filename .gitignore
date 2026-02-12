@@ -1,13 +1,20 @@
+# Cursor IDE
+.cursor/
+
+# Node
+node_modules/
+
 # OS
-.DS_Store
 Thumbs.db
+.DS_Store
 desktop.ini
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
+# Videos (too large for git)
+*.mp4
+*.avi
+*.mov
 
-# Cursor
-.cursor/
+# Temp
+*.tmp
+*.bak
+~$*
