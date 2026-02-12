@@ -1287,6 +1287,10 @@ const UNITS = {
     area: { label: 'ft\u00B2', factor: 1 },
     eui: { label: 'kBtu/ft\u00B2', factor: 1 },
     volume: { label: 'ft\u00B3', factor: 1 },
+    load: { label: 'Btu/h', factor: 1 },
+    airflow: { label: 'ft\u00B3/min', factor: 1 },
+    infRate: { label: 'm\u00B3/s', factor: 1 },
+    density: { label: 'Btu/h\u00B7ft\u00B2', factor: 1 },
   },
   si: {
     energy: { label: 'kWh', factor: 0.293071 },
@@ -1297,6 +1301,10 @@ const UNITS = {
     area: { label: 'm\u00B2', factor: 0.092903 },
     eui: { label: 'kWh/m\u00B2', factor: 3.15459 },
     volume: { label: 'm\u00B3', factor: 0.0283168 },
+    load: { label: 'W', factor: 0.293071 },
+    airflow: { label: 'm\u00B3/s', factor: 0.000471947 },
+    infRate: { label: 'm\u00B3/s', factor: 1 },
+    density: { label: 'W/m\u00B2', factor: 3.15459 },
   }
 };
 
@@ -3186,7 +3194,7 @@ function renderZoneCompareDetail() {
   // Basic
   html += '<tr class="total-row"><td colspan="' + (fileNames.length + 1 + (zoneData.length === 2 ? 1 : 0)) + '" style="text-align:left;font-weight:700">' + t('zoneBasicInfo') + '</td></tr>';
   html += row(isKo ? '\uBC14\uB2E5 \uBA74\uC801' : 'Floor Area', z => convertVal(z.area || 0, 'area'), aU);
-  html += row(isKo ? '\uCCB4\uC801' : 'Volume', z => currentUnit === 'si' ? (z.volume || 0) * 0.0283168 : (z.volume || 0), currentUnit === 'si' ? 'm\u00B3' : 'ft\u00B3');
+  html += row(isKo ? '\uCCB4\uC801' : 'Volume', z => convertVal(z.volume || 0, 'volume'), unitLabel('volume'));
   html += row(isKo ? '\uCCA8\uC7A5 \uB192\uC774' : 'Ceiling Height', z => currentUnit === 'si' ? (z.ceilingHeight || 0) * 0.3048 : (z.ceilingHeight || 0), currentUnit === 'si' ? 'm' : 'ft');
 
   // Envelope
@@ -3198,19 +3206,19 @@ function renderZoneCompareDetail() {
   // Internal Loads
   html += '<tr class="total-row"><td colspan="' + (fileNames.length + 1 + (zoneData.length === 2 ? 1 : 0)) + '" style="text-align:left;font-weight:700">' + t('zoneInternalLoad') + '</td></tr>';
   html += row(isKo ? '\uC7AC\uC2E4 \uC778\uC6D0' : 'Occupants', z => z.people?.count || 0, isKo ? '\uBA85' : '');
-  html += row(isKo ? '\uC870\uBA85 \uBC00\uB3C4' : 'Lighting Density', z => currentUnit === 'si' ? (z.lightingDensity || 0) * 0.293071 * 10.764 : (z.lightingDensity || 0), currentUnit === 'si' ? 'W/m\u00B2' : 'Btu/h\u00B7ft\u00B2');
-  html += row(isKo ? '\uC7A5\uBE44 \uBC00\uB3C4' : 'Equipment Density', z => currentUnit === 'si' ? (z.plugDensity || 0) * 0.293071 * 10.764 : (z.plugDensity || 0), currentUnit === 'si' ? 'W/m\u00B2' : 'Btu/h\u00B7ft\u00B2');
+  html += row(isKo ? '\uC870\uBA85 \uBC00\uB3C4' : 'Lighting Density', z => convertVal(z.lightingDensity || 0, 'density'), unitLabel('density'));
+  html += row(isKo ? '\uC7A5\uBE44 \uBC00\uB3C4' : 'Equipment Density', z => convertVal(z.plugDensity || 0, 'density'), unitLabel('density'));
 
   // HVAC Sizing
   html += '<tr class="total-row"><td colspan="' + (fileNames.length + 1 + (zoneData.length === 2 ? 1 : 0)) + '" style="text-align:left;font-weight:700">' + t('zoneSizingInfo') + '</td></tr>';
-  html += row(isKo ? '\uB0C9\uBC29 \uC124\uACC4\uBD80\uD558' : 'Cooling Design Load', z => z.sizing?.cooling?.designLoad || 0, 'Btu/h', isKo ? '\uD06C\uBA74 \uB0C9\uBC29 \uC7A5\uBE44 \uD544\uC694' : 'Higher = more cooling needed');
-  html += row(isKo ? '\uB0C9\uBC29 \uD48D\uB7C9' : 'Cooling Air Flow', z => z.sizing?.cooling?.designAirFlow || 0, 'ft\u00B3/min');
-  html += row(isKo ? '\uB09C\uBC29 \uC124\uACC4\uBD80\uD558' : 'Heating Design Load', z => z.sizing?.heating?.designLoad || 0, 'Btu/h', isKo ? '\uD06C\uBA74 \uB09C\uBC29 \uC7A5\uBE44 \uD544\uC694' : 'Higher = more heating needed');
-  html += row(isKo ? '\uB09C\uBC29 \uD48D\uB7C9' : 'Heating Air Flow', z => z.sizing?.heating?.designAirFlow || 0, 'ft\u00B3/min');
+  html += row(isKo ? '\uB0C9\uBC29 \uC124\uACC4\uBD80\uD558' : 'Cooling Design Load', z => convertVal(z.sizing?.cooling?.designLoad || 0, 'load'), unitLabel('load'), isKo ? '\uD06C\uBA74 \uB0C9\uBC29 \uC7A5\uBE44 \uD544\uC694' : 'Higher = more cooling needed');
+  html += row(isKo ? '\uB0C9\uBC29 \uD48D\uB7C9' : 'Cooling Air Flow', z => convertVal(z.sizing?.cooling?.designAirFlow || 0, 'airflow'), unitLabel('airflow'));
+  html += row(isKo ? '\uB09C\uBC29 \uC124\uACC4\uBD80\uD558' : 'Heating Design Load', z => convertVal(z.sizing?.heating?.designLoad || 0, 'load'), unitLabel('load'), isKo ? '\uD06C\uBA74 \uB09C\uBC29 \uC7A5\uBE44 \uD544\uC694' : 'Higher = more heating needed');
+  html += row(isKo ? '\uB09C\uBC29 \uD48D\uB7C9' : 'Heating Air Flow', z => convertVal(z.sizing?.heating?.designAirFlow || 0, 'airflow'), unitLabel('airflow'));
 
   // Infiltration
   html += '<tr class="total-row"><td colspan="' + (fileNames.length + 1 + (zoneData.length === 2 ? 1 : 0)) + '" style="text-align:left;font-weight:700">' + t('zoneInfiltrationInfo') + '</td></tr>';
-  html += row(isKo ? '\uCE68\uAE30 \uD48D\uB7C9' : 'Infiltration Rate', z => z.infiltration?.flowRate || 0, 'ft\u00B3/min');
+  html += row(isKo ? '\uCE68\uAE30 \uD48D\uB7C9' : 'Infiltration Rate', z => convertVal(z.infiltration?.flowRate || 0, 'airflow'), unitLabel('airflow'));
   html += row(isKo ? '\uD658\uAE30\uD69F\uC218 (ACH)' : 'ACH', z => z.infiltration?.ach || 0, 'ACH', isKo ? '\uB0AE\uC744\uC218\uB85D \uB2E8\uC5F4 \uC131\uB2A5 \uC88B\uC74C' : 'Lower = better insulation');
 
   html += '</table></div></div>';
@@ -3536,7 +3544,7 @@ function showZoneComparison() {
   // Basic Info
   html += '<tr><td colspan="' + (items.length + 1) + '" style="background:#f0f7ff;font-weight:700;font-size:.85rem">' + (isKo ? '📋 기본 정보' : '📋 Basic Info') + '</td></tr>';
   html += row(isKo ? '바닥 면적' : 'Floor Area', z => convertVal(z.area || 0, 'area'), aU);
-  html += row(isKo ? '체적' : 'Volume', z => currentUnit === 'si' ? (z.volume || 0) * 0.0283168 : z.volume || 0, currentUnit === 'si' ? 'm³' : 'ft³');
+  html += row(isKo ? '체적' : 'Volume', z => convertVal(z.volume || 0, 'volume'), unitLabel('volume'));
   html += row(isKo ? '공조' : 'Conditioned', z => z.conditioned, '');
   html += row(isKo ? '배율' : 'Multiplier', z => z.multipliers, 'x');
 
@@ -3549,19 +3557,19 @@ function showZoneComparison() {
   // Internal Loads
   html += '<tr><td colspan="' + (items.length + 1) + '" style="background:#f0f7ff;font-weight:700;font-size:.85rem">' + (isKo ? '💡 내부 부하' : '💡 Internal Loads') + '</td></tr>';
   html += row(isKo ? '재실 인원' : 'Occupants', z => z.people?.count || 0, isKo ? '명' : '');
-  html += row(isKo ? '조명 밀도' : 'Lighting', z => z.lightingDensity || z.lights?.density || 0, 'Btu/h·ft²');
-  html += row(isKo ? '장비 밀도' : 'Equipment', z => z.plugDensity || z.equipment?.density || 0, 'Btu/h·ft²');
+  html += row(isKo ? '조명 밀도' : 'Lighting', z => convertVal(z.lightingDensity || z.lights?.density || 0, 'density'), unitLabel('density'));
+  html += row(isKo ? '장비 밀도' : 'Equipment', z => convertVal(z.plugDensity || z.equipment?.density || 0, 'density'), unitLabel('density'));
 
   // HVAC
   html += '<tr><td colspan="' + (items.length + 1) + '" style="background:#f0f7ff;font-weight:700;font-size:.85rem">' + (isKo ? '❄ HVAC 설계' : '❄ HVAC Sizing') + '</td></tr>';
-  html += row(isKo ? '냉방 설계부하' : 'Cooling Load', z => z.sizing?.cooling?.designLoad || 0, 'Btu/h');
-  html += row(isKo ? '냉방 풍량' : 'Cooling Airflow', z => z.sizing?.cooling?.designAirFlow || 0, 'ft³/min');
-  html += row(isKo ? '난방 설계부하' : 'Heating Load', z => z.sizing?.heating?.designLoad || 0, 'Btu/h');
-  html += row(isKo ? '난방 풍량' : 'Heating Airflow', z => z.sizing?.heating?.designAirFlow || 0, 'ft³/min');
+  html += row(isKo ? '냉방 설계부하' : 'Cooling Load', z => convertVal(z.sizing?.cooling?.designLoad || 0, 'load'), unitLabel('load'));
+  html += row(isKo ? '냉방 풍량' : 'Cooling Airflow', z => convertVal(z.sizing?.cooling?.designAirFlow || 0, 'airflow'), unitLabel('airflow'));
+  html += row(isKo ? '난방 설계부하' : 'Heating Load', z => convertVal(z.sizing?.heating?.designLoad || 0, 'load'), unitLabel('load'));
+  html += row(isKo ? '난방 풍량' : 'Heating Airflow', z => convertVal(z.sizing?.heating?.designAirFlow || 0, 'airflow'), unitLabel('airflow'));
 
   // Infiltration
   html += '<tr><td colspan="' + (items.length + 1) + '" style="background:#f0f7ff;font-weight:700;font-size:.85rem">' + (isKo ? '🌬 침기' : '🌬 Infiltration') + '</td></tr>';
-  html += row(isKo ? '유량' : 'Flow Rate', z => z.infiltration?.flowRate || 0, 'm³/s');
+  html += row(isKo ? '유량' : 'Flow Rate', z => convertVal(z.infiltration?.flowRate || 0, 'airflow'), unitLabel('airflow'));
   html += row('ACH', z => z.infiltration?.ach || 0, '');
 
   html += '</table></div></div>';
@@ -3819,19 +3827,15 @@ function showZoneDetail(idx) {
     areaPerPerson > 0 ? (isKo ? '1\uC778\uB2F9 \uC57D ' + fmtNum(currentUnit === 'si' ? areaPerPerson * 0.092903 : areaPerPerson) + ' ' + unitLabel('area') : 'About ' + fmtNum(currentUnit === 'si' ? areaPerPerson * 0.092903 : areaPerPerson) + ' ' + unitLabel('area') + '/person') : '');
 
   const lightDensity = z.lightingDensity || (z.lights.density || 0);
-  const lightW = lightDensity * 0.293071; // Btu/h-ft2 to W/ft2, then * 10.764 for W/m2
-  const lightWm2 = lightDensity * 0.293071 * 10.764;
-  html += item(isKo ? '\uC870\uBA85 \uBC00\uB3C4' : 'Lighting Density', currentUnit === 'si' ? fmtNum(lightWm2) + ' <span class="unit">W/m\u00B2</span>' : fmtNum(lightDensity) + ' <span class="unit">Btu/h\u00B7ft\u00B2</span>', '',
+  html += item(isKo ? '\uC870\uBA85 \uBC00\uB3C4' : 'Lighting Density', fmtNum(convertVal(lightDensity, 'density')), unitLabel('density'),
     isKo ? '\uD3C9\uBC94\uD55C \uBC14\uB2E5 \uBA74\uC801\uB2F9 \uC870\uBA85 \uC5D0\uB108\uC9C0' : 'Lighting power per unit floor area');
 
   const plugDensity = z.plugDensity || (z.equipment.density || 0);
-  const plugWm2 = plugDensity * 0.293071 * 10.764;
-  html += item(isKo ? '\uC7A5\uBE44 \uBC00\uB3C4' : 'Equipment Density', currentUnit === 'si' ? fmtNum(plugWm2) + ' <span class="unit">W/m\u00B2</span>' : fmtNum(plugDensity) + ' <span class="unit">Btu/h\u00B7ft\u00B2</span>', '',
+  html += item(isKo ? '\uC7A5\uBE44 \uBC00\uB3C4' : 'Equipment Density', fmtNum(convertVal(plugDensity, 'density')), unitLabel('density'),
     isKo ? 'PC, \uBCF5\uD569\uAE30 \uB4F1 \uC0AC\uBB34\uAE30\uAE30 \uC804\uB825' : 'Computers, copiers, appliances');
 
   if (z.totalLoadDensity > 0) {
-    const totalWm2 = z.totalLoadDensity * 0.293071 * 10.764;
-    html += item(isKo ? '\uCD1D \uB0B4\uBD80\uBD80\uD558' : 'Total Internal Load', currentUnit === 'si' ? fmtNum(totalWm2) + ' <span class="unit">W/m\u00B2</span>' : fmtNum(z.totalLoadDensity) + ' <span class="unit">Btu/h\u00B7ft\u00B2</span>', '',
+    html += item(isKo ? '\uCD1D \uB0B4\uBD80\uBD80\uD558' : 'Total Internal Load', fmtNum(convertVal(z.totalLoadDensity, 'density')), unitLabel('density'),
       isKo ? '\uC870\uBA85+\uC7A5\uBE44 \uD569\uACC4 \u2014 \uB192\uC744\uC218\uB85D \uB0C9\uBC29\uBD80\uD558 \uC99D\uAC00' : 'Lighting + Equipment total — higher means more cooling needed');
   }
   html += '</div></div>';
@@ -3843,18 +3847,18 @@ function showZoneDetail(idx) {
     html += '<div class="zone-detail-grid">';
     if (z.sizing.cooling) {
       const cl = z.sizing.cooling;
-      html += item(isKo ? '\uB0C9\uBC29 \uC124\uACC4\uBD80\uD558' : 'Cooling Design Load', fmtNum(cl.designLoad), 'Btu/h',
+      html += item(isKo ? '\uB0C9\uBC29 \uC124\uACC4\uBD80\uD558' : 'Cooling Design Load', fmtNum(convertVal(cl.designLoad, 'load')), unitLabel('load'),
         isKo ? '\uC774 \uACF5\uAC04\uC744 \uB0C9\uBC29\uD558\uB294\uB370 \uD544\uC694\uD55C \uCD5C\uB300 \uC5D0\uB108\uC9C0' : 'Maximum energy needed to cool this space');
-      html += item(isKo ? '\uB0C9\uBC29 \uD48D\uB7C9' : 'Cooling Air Flow', fmtNum(cl.designAirFlow), 'ft\u00B3/min',
+      html += item(isKo ? '\uB0C9\uBC29 \uD48D\uB7C9' : 'Cooling Air Flow', fmtNum(convertVal(cl.designAirFlow, 'airflow')), unitLabel('airflow'),
         isKo ? '\uD53C\uD06C \uC2DC \uD544\uC694 \uC1A1\uD48D\uB7C9' : 'Air volume at peak cooling');
       html += item(isKo ? '\uB0C9\uBC29 \uD53C\uD06C' : 'Cooling Peak', cl.peakDate, '',
         isKo ? '\uB0C9\uBC29\uC774 \uAC00\uC7A5 \uD544\uC694\uD55C \uC2DC\uC810' : 'When cooling demand is highest');
     }
     if (z.sizing.heating) {
       const ht = z.sizing.heating;
-      html += item(isKo ? '\uB09C\uBC29 \uC124\uACC4\uBD80\uD558' : 'Heating Design Load', fmtNum(ht.designLoad), 'Btu/h',
+      html += item(isKo ? '\uB09C\uBC29 \uC124\uACC4\uBD80\uD558' : 'Heating Design Load', fmtNum(convertVal(ht.designLoad, 'load')), unitLabel('load'),
         isKo ? '\uC774 \uACF5\uAC04\uC744 \uB09C\uBC29\uD558\uB294\uB370 \uD544\uC694\uD55C \uCD5C\uB300 \uC5D0\uB108\uC9C0' : 'Maximum energy needed to heat this space');
-      html += item(isKo ? '\uB09C\uBC29 \uD48D\uB7C9' : 'Heating Air Flow', fmtNum(ht.designAirFlow), 'ft\u00B3/min', '');
+      html += item(isKo ? '\uB09C\uBC29 \uD48D\uB7C9' : 'Heating Air Flow', fmtNum(convertVal(ht.designAirFlow, 'airflow')), unitLabel('airflow'), '');
       html += item(isKo ? '\uB09C\uBC29 \uD53C\uD06C' : 'Heating Peak', ht.peakDate, '',
         isKo ? '\uB09C\uBC29\uC774 \uAC00\uC7A5 \uD544\uC694\uD55C \uC2DC\uC810' : 'When heating demand is highest');
     }
@@ -3866,9 +3870,11 @@ function showZoneDetail(idx) {
     html += '<div class="zone-detail-section">';
     html += '<h3>&#127744; ' + t('zoneInfiltrationInfo') + '</h3>';
     html += '<div class="zone-detail-grid">';
-    if (z.infiltration.flowRate > 0)
-      html += item(isKo ? '\uCE68\uAE30 \uD48D\uB7C9' : 'Infiltration Rate', fmtNum(z.infiltration.flowRate), 'ft\u00B3/min',
+    if (z.infiltration.flowRate > 0) {
+      const infRateVal = currentUnit === 'si' ? z.infiltration.flowRate * 0.000471947 : z.infiltration.flowRate;
+      html += item(isKo ? '\uCE68\uAE30 \uD48D\uB7C9' : 'Infiltration Rate', fmtNum(infRateVal, currentUnit === 'si' ? 4 : 2), unitLabel('airflow'),
         isKo ? '\uC678\uBD80\uC5D0\uC11C \uD2C8\uC0AC\uC774\uB85C \uB4E4\uC5B4\uC624\uB294 \uACF5\uAE30\uB7C9 \u2014 \uB0AE\uC744\uC218\uB85D \uB2E8\uC5F4 \uC131\uB2A5 \uC88B\uC74C' : 'Air leaking in from outside — lower is better');
+    }
     if (z.infiltration.ach > 0)
       html += item(isKo ? '\uD658\uAE30\uD69F\uC218 (ACH)' : 'Air Changes/Hour', fmtNum(z.infiltration.ach, 2), 'ACH',
         z.infiltration.ach > 1
@@ -4234,13 +4240,42 @@ function setLang(lang) {
   document.querySelectorAll('#langToggle .btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
   document.documentElement.lang = lang;
   applyI18n();
-  renderAll();
+  rerenderInPlace();
 }
 
 function setUnit(unit) {
   currentUnit = unit;
   document.querySelectorAll('#unitToggle .btn').forEach(b => b.classList.toggle('active', b.dataset.unit === unit));
+  rerenderInPlace();
+}
+
+/* Re-render current view without resetting tab or zone view state */
+function rerenderInPlace() {
+  if (reports.length === 0) { renderAll(); return; }
+  /* Detect which zone sub-view is active */
+  const zoneDetailPanel = document.getElementById('zoneDetailPanel');
+  const zoneComparePanel = document.getElementById('zoneComparePanel');
+  const isZoneDetail = zoneDetailPanel && zoneDetailPanel.style.display === 'block';
+  const isZoneCompare = zoneComparePanel && zoneComparePanel.style.display === 'block';
+  /* Find currently displayed zone detail idx */
+  let currentZoneIdx = -1;
+  if (isZoneDetail) {
+    const heading = zoneDetailPanel.querySelector('h2');
+    if (heading) {
+      const r = reports[activeReportIdx];
+      if (r && r.zoneDetail) {
+        currentZoneIdx = r.zoneDetail.findIndex(z => z.name === heading.textContent);
+      }
+    }
+  }
+  /* Full re-render (this will reset zone view to card grid) */
   renderAll();
+  /* Restore zone sub-view */
+  if (isZoneDetail && currentZoneIdx >= 0) {
+    showZoneDetail(currentZoneIdx);
+  } else if (isZoneCompare && zoneSelections.length >= 2) {
+    showZoneComparison();
+  }
 }
 
 function applyI18n() {

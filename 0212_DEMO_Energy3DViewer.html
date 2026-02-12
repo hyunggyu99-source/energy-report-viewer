@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Energy 3D Viewer — DEMO (2025.02.12)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg: #0f172a; --panel: #1e293b; --panel-border: #334155;
+  --text: #e2e8f0; --text-dim: #94a3b8;
+  --primary: #3b82f6; --primary-light: #60a5fa;
+  --accent: #f59e0b; --success: #10b981; --danger: #ef4444;
+  --radius: 10px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',-apple-system,sans-serif; background:var(--bg); color:var(--text); overflow:hidden; height:100vh; }
+.app { display:flex; height:100vh; }
+.sidebar { width:360px; min-width:360px; background:var(--panel); border-right:1px solid var(--panel-border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; z-index:10; }
+.viewport { flex:1; position:relative; }
+
+.sidebar-header { padding:16px 20px; border-bottom:1px solid var(--panel-border); }
+.sidebar-header h1 { font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:8px; }
+.sidebar-header p { font-size:.75rem; color:var(--text-dim); margin-top:4px; }
+.demo-badge { display:inline-block; background:linear-gradient(135deg,#f59e0b,#ef4444); color:white; font-size:.55rem; font-weight:700; padding:2px 6px; border-radius:4px; letter-spacing:.04em; vertical-align:middle; }
+
+.settings-row { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+.toggle-group { display:flex; gap:1px; background:var(--bg); border-radius:6px; padding:2px; }
+.toggle-btn { padding:3px 8px; border-radius:4px; border:none; background:transparent; color:var(--text-dim); font-size:.65rem; cursor:pointer; font-weight:600; transition:all .15s; font-family:inherit; }
+.toggle-btn.active { background:var(--primary); color:white; }
+.toggle-btn:hover:not(.active) { background:rgba(59,130,246,.15); }
+
+.panel-section { border-bottom:1px solid var(--panel-border); }
+.panel-header { display:flex; align-items:center; padding:8px 14px; cursor:pointer; user-select:none; gap:6px; transition:background .15s; }
+.panel-header:hover { background:rgba(255,255,255,.03); }
+.panel-header .panel-chevron { font-size:.55rem; color:var(--text-dim); transition:transform .25s; flex-shrink:0; width:12px; text-align:center; }
+.panel-header.collapsed .panel-chevron { transform:rotate(-90deg); }
+.panel-header .panel-title { font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); flex:1; }
+.panel-body { transition:max-height .3s ease, opacity .25s ease; overflow:hidden; }
+.panel-body.collapsed { max-height:0 !important; opacity:0; padding-top:0 !important; padding-bottom:0 !important; }
+
+/* Controls */
+.controls { padding:12px 20px; }
+.control-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.control-row label { font-size:.75rem; color:var(--text-dim); min-width:72px; }
+.control-row select, .control-row input[type=range] { flex:1; background:var(--bg); color:var(--text); border:1px solid var(--panel-border); border-radius:6px; padding:4px 8px; font-size:.75rem; }
+.control-row select { cursor:pointer; }
+.control-row input[type=range] { cursor:pointer; padding:0; }
+
+/* Space list */
+.space-list { flex:1; overflow-y:auto; padding:8px 12px; }
+.space-list::-webkit-scrollbar { width:5px; }
+.space-list::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:3px; }
+.space-item { padding:8px 10px; border-radius:7px; margin-bottom:3px; cursor:pointer; border:1px solid transparent; transition:all .15s; position:relative; overflow:hidden; }
+.space-item:hover { background:rgba(255,255,255,.04); border-color:var(--panel-border); }
+.space-item.selected { background:rgba(59,130,246,.1); border-color:var(--primary); }
+.space-item .name { font-size:.8rem; font-weight:600; }
+.space-item .meta { font-size:.68rem; color:var(--text-dim); margin-top:1px; }
+.space-item .energy-bar { position:absolute; left:0; bottom:0; height:3px; border-radius:0 0 7px 7px; transition:width .3s; }
+
+/* Right detail panel */
+.right-panel { position:absolute; top:12px; right:12px; bottom:80px; width:320px; background:rgba(30,41,59,.92); backdrop-filter:blur(12px); border:1px solid var(--panel-border); border-radius:12px; z-index:8; display:none; overflow-y:auto; padding:16px; }
+.right-panel.visible { display:block; }
+.right-panel h3 { font-size:.9rem; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.right-panel .close-btn { margin-left:auto; cursor:pointer; background:none; border:none; color:var(--text-dim); font-size:1rem; }
+.right-panel .close-btn:hover { color:var(--text); }
+.detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.detail-cell { background:rgba(15,23,42,.6); border-radius:6px; padding:6px 8px; }
+.detail-cell .dl { font-size:.62rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; }
+.detail-cell .dv { font-size:.85rem; font-weight:700; margin-top:1px; }
+.detail-cell.wide { grid-column:1/-1; }
+.htm-section { margin-top:12px; padding-top:12px; border-top:1px solid var(--panel-border); }
+.htm-section h4 { font-size:.75rem; font-weight:600; color:var(--primary-light); margin-bottom:6px; }
+.htm-metric { display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:.72rem; }
+.htm-metric .metric-label { color:var(--text-dim); }
+.htm-metric .metric-val { font-weight:700; }
+
+/* Analysis section */
+.analysis-section { padding:10px 20px; }
+.analysis-section h3 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--accent); margin-bottom:6px; }
+.summary-card { background:rgba(15,23,42,.5); border-radius:6px; padding:8px 10px; margin-bottom:6px; }
+.summary-card-title { font-size:.68rem; font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:5px; }
+.summary-kpi { font-size:1.1rem; font-weight:700; color:var(--primary-light); margin-bottom:2px; }
+.summary-sub { font-size:.65rem; color:var(--text-dim); }
+.compare-row { display:flex; justify-content:space-between; font-size:.72rem; padding:2px 0; border-bottom:1px solid rgba(51,65,85,.3); }
+.compare-row .cr-label { color:var(--text-dim); }
+.compare-row .cr-val { font-weight:600; }
+.eu-row { display:flex; justify-content:space-between; align-items:center; font-size:.7rem; padding:3px 0; border-bottom:1px solid rgba(51,65,85,.2); }
+.eu-label { display:flex; align-items:center; gap:5px; color:var(--text-dim); }
+.eu-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+.eu-val { font-weight:600; font-variant-numeric:tabular-nums; }
+.eu-bar-bg { flex:1; height:6px; background:rgba(51,65,85,.4); border-radius:3px; margin:0 8px; min-width:30px; }
+.eu-bar { height:100%; border-radius:3px; transition:width .3s; }
+.analysis-tabs { display:flex; gap:2px; margin-bottom:8px; }
+.analysis-tab { flex:1; padding:4px 6px; font-size:.65rem; text-align:center; cursor:pointer; border-radius:5px; background:rgba(51,65,85,.3); color:var(--text-dim); border:1px solid transparent; transition:all .15s; }
+.analysis-tab.active { background:rgba(59,130,246,.15); border-color:var(--primary); color:var(--primary-light); }
+.analysis-tab:hover { background:rgba(59,130,246,.1); }
+
+/* Toolbar */
+.viewport-toolbar { position:absolute; top:12px; left:50%; transform:translateX(-50%); display:flex; gap:6px; z-index:5; }
+.vp-btn { background:rgba(30,41,59,.85); backdrop-filter:blur(8px); border:1px solid var(--panel-border); color:var(--text); padding:6px 12px; border-radius:7px; cursor:pointer; font-size:.75rem; display:flex; align-items:center; gap:4px; transition:all .15s; }
+.vp-btn:hover { background:rgba(59,130,246,.2); border-color:var(--primary); }
+.vp-btn.active { background:rgba(59,130,246,.25); border-color:var(--primary); color:var(--primary-light); }
+
+/* Legend */
+.legend { position:absolute; bottom:16px; left:50%; transform:translateX(-50%); background:rgba(30,41,59,.9); backdrop-filter:blur(8px); border:1px solid var(--panel-border); border-radius:10px; padding:8px 16px; z-index:5; display:flex; align-items:center; gap:10px; }
+.legend-title { font-size:.68rem; color:var(--text-dim); font-weight:600; text-transform:uppercase; }
+.legend-bar { width:180px; height:12px; border-radius:6px; }
+.legend-labels { display:flex; justify-content:space-between; width:180px; }
+.legend-labels span { font-size:.62rem; color:var(--text-dim); }
+
+/* Tooltip */
+.tooltip { position:absolute; pointer-events:none; background:rgba(15,23,42,.95); backdrop-filter:blur(8px); border:1px solid var(--panel-border); border-radius:7px; padding:8px 12px; font-size:.72rem; z-index:20; display:none; max-width:260px; }
+.tooltip .tt-name { font-weight:700; font-size:.8rem; margin-bottom:3px; }
+.tooltip .tt-row { display:flex; justify-content:space-between; gap:14px; color:var(--text-dim); }
+.tooltip .tt-val { color:var(--text); font-weight:600; }
+
+.status-bar { position:absolute; bottom:16px; right:16px; background:rgba(30,41,59,.9); border:1px solid var(--panel-border); border-radius:8px; padding:6px 12px; font-size:.7rem; color:var(--text-dim); z-index:5; }
+
+/* Props panel */
+.props-panel { position:absolute; left:12px; top:12px; bottom:80px; width:300px; background:rgba(30,41,59,.95); backdrop-filter:blur(12px); border:1px solid var(--panel-border); border-radius:12px; z-index:9; overflow-y:auto; overflow-x:hidden; display:none; }
+.props-panel.visible { display:block; }
+.props-panel::-webkit-scrollbar { width:5px; }
+.props-panel::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:3px; }
+.props-header { display:flex; align-items:center; gap:6px; padding:8px 12px; background:rgba(59,130,246,.1); border-bottom:1px solid var(--panel-border); position:sticky; top:0; z-index:2; }
+.props-header .props-title { flex:1; font-size:.72rem; font-weight:700; }
+.props-header .props-close { background:none; border:1px solid var(--panel-border); color:var(--text-dim); font-size:.75rem; cursor:pointer; padding:3px 6px; border-radius:4px; }
+.props-header .props-close:hover { background:rgba(59,130,246,.15); color:var(--text); }
+.props-cat-header { background:rgba(59,130,246,.12); padding:4px 14px; font-size:.68rem; font-weight:700; color:var(--primary-light); text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid rgba(59,130,246,.15); cursor:pointer; user-select:none; display:flex; align-items:center; gap:5px; }
+.props-cat-header:hover { background:rgba(59,130,246,.18); }
+.props-cat-header .cat-chevron { font-size:.5rem; transition:transform .2s; }
+.props-cat-header.collapsed .cat-chevron { transform:rotate(-90deg); }
+.props-table { width:100%; border-collapse:collapse; }
+.props-table.collapsed { display:none; }
+.props-table td { padding:3px 14px; font-size:.7rem; border-bottom:1px solid rgba(51,65,85,.25); vertical-align:top; }
+.props-table td:first-child { color:var(--text-dim); width:42%; white-space:nowrap; }
+.props-table td:last-child { color:var(--text); font-weight:500; word-break:break-word; }
+.props-table tr:hover { background:rgba(59,130,246,.04); }
+
+/* Demo banner */
+.demo-banner { position:absolute; top:52px; left:50%; transform:translateX(-50%); background:linear-gradient(135deg,rgba(245,158,11,.15),rgba(239,68,68,.1)); border:1px solid rgba(245,158,11,.3); border-radius:10px; padding:8px 20px; z-index:6; text-align:center; pointer-events:none; }
+.demo-banner .db-title { font-size:.8rem; font-weight:700; color:var(--accent); }
+.demo-banner .db-sub { font-size:.65rem; color:var(--text-dim); margin-top:2px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>🏢 Energy 3D Viewer <span class="demo-badge">DEMO</span></h1>
+      <p id="headerSubtitle">Revit Space × EnergyPlus Zone Heatmap</p>
+      <div class="settings-row">
+        <div class="toggle-group" id="unitToggle">
+          <button class="toggle-btn active" data-val="IP">IP</button>
+          <button class="toggle-btn" data-val="SI">SI</button>
+        </div>
+        <div class="toggle-group" id="langToggle">
+          <button class="toggle-btn active" data-val="ko">한국어</button>
+          <button class="toggle-btn" data-val="en">EN</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analysis -->
+    <div class="panel-section" id="analysisPanel">
+      <div class="panel-header" id="analysisHeader">
+        <span class="panel-chevron">▼</span>
+        <span class="panel-title" id="labelAnalysis">에너지 분석 요약</span>
+      </div>
+      <div class="panel-body analysis-section" id="analysisBody">
+        <div id="analysisContent"></div>
+        <div id="endUsePieWrap" style="display:none;margin-top:8px;">
+          <canvas id="endUsePieChart" width="260" height="200"></canvas>
+        </div>
+        <div id="monthlyBarWrap" style="display:none;margin-top:8px;">
+          <canvas id="monthlyBarChart" width="260" height="180"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="panel-section" id="controlsPanel">
+      <div class="panel-header" id="controlsHeader">
+        <span class="panel-chevron">▼</span>
+        <span class="panel-title" id="labelControls">설정</span>
+      </div>
+      <div class="panel-body controls" id="controlsBody">
+        <div class="control-row">
+          <label id="lbl_colorby">색상 기준</label>
+          <select id="colorMetric">
+            <option value="spaceType">Space Type</option>
+            <option value="level">층 (Level)</option>
+            <option value="area">면적</option>
+            <option value="volume">체적</option>
+            <option value="conditioned">공조 여부</option>
+            <option value="totalLoad">총부하 (HTM)</option>
+            <option value="coolingLoad">냉방부하 (HTM)</option>
+            <option value="heatingLoad">난방부하 (HTM)</option>
+          </select>
+        </div>
+        <div class="control-row">
+          <label id="lbl_sopacity">Space 투명도</label>
+          <input type="range" id="opacitySlider" min="0.05" max="0.95" step="0.05" value="0.45">
+        </div>
+      </div>
+    </div>
+
+    <!-- Space List -->
+    <div class="panel-section" id="spaceListPanel">
+      <div class="panel-header" id="spaceListHeader">
+        <span class="panel-chevron">▼</span>
+        <span class="panel-title" id="labelSpaces">Space 목록</span>
+      </div>
+      <div class="panel-body" id="spaceListBody" style="max-height:2000px;">
+        <div class="space-list" id="spaceList"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="viewport" id="viewport">
+    <canvas id="canvas3d"></canvas>
+
+    <!-- Properties Panel -->
+    <div class="props-panel" id="propsPanel">
+      <div class="props-header">
+        <span>📋</span>
+        <span class="props-title" id="propsTitle">특성</span>
+        <button class="props-close" id="propsClose" title="닫기">✕</button>
+      </div>
+      <div id="propsContent"></div>
+    </div>
+
+    <div class="viewport-toolbar">
+      <button class="vp-btn" id="btnReset">🔄 Reset</button>
+      <button class="vp-btn active" id="btnSpaces">📦 Spaces</button>
+      <button class="vp-btn active" id="btnAxes">📐 Axes</button>
+      <button class="vp-btn active" id="btnLabels">🏷️ Labels</button>
+    </div>
+
+    <div class="demo-banner" id="demoBanner">
+      <div class="db-title">📊 DEMO — 샘플 데이터로 시연 중</div>
+      <div class="db-sub">실제 사용 시 GLB, JSON, HTM 파일을 로드하세요</div>
+    </div>
+
+    <div class="legend" id="legend">
+      <span class="legend-title" id="legendTitle"></span>
+      <canvas class="legend-bar" id="legendBar" width="180" height="12"></canvas>
+      <div class="legend-labels"><span id="legendMin">Low</span><span id="legendMax">High</span></div>
+    </div>
+
+    <div class="right-panel" id="rightPanel">
+      <h3><span id="detailTitle">📍 Space</span><button class="close-btn" id="closeRight">✕</button></h3>
+      <div class="detail-grid" id="detailGrid"></div>
+      <div class="htm-section" id="htmDetail">
+        <h4>🔗 에너지 데이터</h4>
+        <div id="htmDetailContent"></div>
+      </div>
+    </div>
+
+    <div class="tooltip" id="tooltip"></div>
+    <div class="status-bar" id="statusBar">DEMO Mode — 샘플 건물 로드됨</div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// =========================================================
+// [설정] 전역 변수, 단위, 언어
+// =========================================================
+let currentUnit = 'IP';
+let currentLang = 'ko';
+let selectedSpace = null;
+let showAxes = true;
+let showLabels = true;
+let spacesVisible = true;
+
+let scene, camera, renderer, controls, raycaster, mouse;
+let spaceMeshes = [];
+let axesHelper;
+let labelSprites = [];
+
+const CONV = {
+  ft2_m2: 0.092903, m2_ft2: 10.7639,
+  ft3_m3: 0.028317, m3_ft3: 35.3147,
+  ft_m: 0.3048, m_ft: 3.28084,
+  btu_Wh: 0.293071, btuh_W: 0.293071, W_btuh: 3.41214,
+  btuhft2_Wm2: 3.15459,
+  cfm_Ls: 0.4719,
+  F_C: f => (f - 32) * 5 / 9,
+};
+const CAT_COLORS = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#6366f1','#a855f7','#06b6d4'];
+
+function U(val, type) {
+  if (val == null || isNaN(val)) return '—';
+  const si = currentUnit === 'SI';
+  switch (type) {
+    case 'area_ft2': return si ? (val*CONV.ft2_m2).toFixed(1)+' m²' : val.toLocaleString(undefined,{maximumFractionDigits:1})+' ft²';
+    case 'vol_ft3': return si ? (val*CONV.ft3_m3).toFixed(1)+' m³' : val.toLocaleString(undefined,{maximumFractionDigits:1})+' ft³';
+    case 'len_ft': return si ? (val*CONV.ft_m).toFixed(2)+' m' : val.toFixed(2)+' ft';
+    case 'energy_kbtu': return si ? (val*CONV.btu_Wh).toFixed(1)+' kWh' : val.toFixed(1)+' kBtu';
+    case 'energy_mbtu': return si ? (val*CONV.btu_Wh/1e3).toFixed(2)+' MWh' : val.toFixed(2)+' MBtu';
+    case 'load_kbtuh': return si ? (val*CONV.btuh_W).toFixed(1)+' kW' : val.toFixed(1)+' kBtu/h';
+    case 'density_btuhft2': return si ? (val*CONV.btuhft2_Wm2).toFixed(2)+' W/m²' : val.toFixed(2)+' Btu/h·ft²';
+    case 'cfm': return si ? (val*CONV.cfm_Ls).toFixed(1)+' L/s' : val.toFixed(0)+' CFM';
+    case 'temp_F': return si ? CONV.F_C(val).toFixed(1)+' °C' : val.toFixed(1)+' °F';
+    case 'hr': return val.toLocaleString()+' hr';
+    default: return String(val);
+  }
+}
+function fmtArea(m2) { return currentUnit === 'SI' ? m2.toFixed(1)+' m²' : (m2*CONV.m2_ft2).toFixed(1)+' ft²'; }
+function fmtVol(m3) { return currentUnit === 'SI' ? m3.toFixed(1)+' m³' : (m3*CONV.m3_ft3).toFixed(1)+' ft³'; }
+function fmtLen(ft) {
+  if (currentUnit === 'SI') { const m = ft * 0.3048; return m >= 1 ? m.toFixed(2)+' m' : (ft*304.8).toFixed(0)+' mm'; }
+  return ft.toFixed(2)+' ft';
+}
+
+const LANG = {
+ko: {
+  subtitle:'Revit Space × EnergyPlus Zone Heatmap',
+  analysis_title:'에너지 분석 요약', controls_title:'설정', spaces_title:'Space 목록',
+  tab_overview:'개요', tab_enduse:'에너지 사용', tab_monthly:'월별',
+  building_info:'건물 정보', building_name:'건물명', program:'프로그램',
+  environment:'환경', location:'위치', zone_count:'Zone 수', cond_count:'조건',
+  site_source:'사이트/소스 에너지', building_area_title:'건물 면적',
+  comfort:'쾌적 요약', annual_energy:'연간 에너지 사용량',
+  color_by:'색상 기준', space_opacity:'Space 투명도',
+  color_spaceType:'Space Type', color_level:'층 (Level)', color_area:'면적', color_volume:'체적',
+  color_conditioned:'공조 여부', color_totalLoad:'총부하 (HTM)', color_coolingLoad:'냉방부하 (HTM)', color_heatingLoad:'난방부하 (HTM)',
+  space_info:'공간 정보', zone_area:'Zone 면적', zone_volume:'Zone 체적',
+  ceiling_h:'천장 높이', ext_wall:'외벽 면적', window_area:'창 면적', hvac_yn:'냉난방 여부',
+  internal_gains:'내부 부하', occupancy:'재실 인원', persons:'명',
+  lighting_d:'조명 밀도', equip_d:'기기 밀도', total_load_d:'총 부하 밀도',
+  design_loads:'설계 부하', cooling_design:'냉방 설계', cooling_af:'냉방 풍량',
+  heating_design:'난방 설계', heating_af:'난방 풍량',
+  monthly_suffix:'월별 소비',
+  months:['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'],
+  months_short:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+  cat_dimensions:'치수', cat_identity:'Identity', cat_energy:'Energy Analysis', cat_location:'위치',
+  prop_name:'이름', prop_area:'면적', prop_volume:'체적', prop_height:'높이', prop_width:'가로', prop_depth:'세로',
+  prop_level:'층', prop_type:'유형', prop_conditioned:'공조', prop_htm_zone:'HTM Zone',
+},
+en: {
+  subtitle:'Revit Space × EnergyPlus Zone Heatmap',
+  analysis_title:'Energy Analysis Summary', controls_title:'Settings', spaces_title:'Space List',
+  tab_overview:'Overview', tab_enduse:'End Use', tab_monthly:'Monthly',
+  building_info:'Building Info', building_name:'Building', program:'Program',
+  environment:'Environment', location:'Location', zone_count:'Zones', cond_count:'Cond.',
+  site_source:'Site/Source Energy', building_area_title:'Building Area',
+  comfort:'Comfort Summary', annual_energy:'Annual Energy Use',
+  color_by:'Color By', space_opacity:'Space Opacity',
+  color_spaceType:'Space Type', color_level:'Level', color_area:'Area', color_volume:'Volume',
+  color_conditioned:'Conditioned', color_totalLoad:'Total Load (HTM)', color_coolingLoad:'Cooling (HTM)', color_heatingLoad:'Heating (HTM)',
+  space_info:'Space Info', zone_area:'Zone Area', zone_volume:'Zone Volume',
+  ceiling_h:'Ceiling Height', ext_wall:'Ext. Wall', window_area:'Window Area', hvac_yn:'HVAC',
+  internal_gains:'Internal Gains', occupancy:'Occupants', persons:'',
+  lighting_d:'Lighting Density', equip_d:'Equipment Density', total_load_d:'Total Load Density',
+  design_loads:'Design Loads', cooling_design:'Cooling Design', cooling_af:'Cooling Airflow',
+  heating_design:'Heating Design', heating_af:'Heating Airflow',
+  monthly_suffix:'Monthly Consumption',
+  months:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+  months_short:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+  cat_dimensions:'Dimensions', cat_identity:'Identity', cat_energy:'Energy Analysis', cat_location:'Location',
+  prop_name:'Name', prop_area:'Area', prop_volume:'Volume', prop_height:'Height', prop_width:'Width', prop_depth:'Depth',
+  prop_level:'Level', prop_type:'Type', prop_conditioned:'Conditioned', prop_htm_zone:'HTM Zone',
+}
+};
+function L(key) { return LANG[currentLang]?.[key] ?? key; }
+
+// =========================================================
+// [데모 데이터] 3층 오피스 건물 샘플
+// =========================================================
+const DEMO_SPACES = [
+  { id:'sp-001', name:'1F Lobby',          level:'1F', type:'Lobby',       area:120, volume:480, conditioned:true,  bbox:{x:0,y:0,z:0,w:15,d:8,h:4}, zone:{ area:1291.67, volume:5166.67, ceilingH:13.12, lighting:1.2, equip:0.8, totalLoad:4.5, cooling:{load:85000, airflow:2800, peakTemp:92.1}, heating:{load:52000, airflow:1800} }},
+  { id:'sp-002', name:'1F Open Office',    level:'1F', type:'Office',      area:200, volume:720, conditioned:true,  bbox:{x:16,y:0,z:0,w:20,d:10,h:3.6}, zone:{ area:2152.78, volume:7750, ceilingH:11.81, lighting:1.5, equip:1.8, totalLoad:7.2, cooling:{load:145000, airflow:4500, peakTemp:93.5}, heating:{load:78000, airflow:3200} }},
+  { id:'sp-003', name:'1F Conference',     level:'1F', type:'Conference',  area:45, volume:162,  conditioned:true,  bbox:{x:37,y:0,z:0,w:9,d:5,h:3.6}, zone:{ area:484.38, volume:1743.75, ceilingH:11.81, lighting:1.8, equip:0.5, totalLoad:5.8, cooling:{load:42000, airflow:1400, peakTemp:91.2}, heating:{load:18000, airflow:900} }},
+  { id:'sp-004', name:'1F Restroom',       level:'1F', type:'Restroom',    area:25, volume:87.5, conditioned:false, bbox:{x:37,y:6,z:0,w:6,d:4.2,h:3.6}, zone:{ area:269.10, volume:941.84, ceilingH:11.81, lighting:1.0, equip:0.2, totalLoad:1.8, cooling:null, heating:null }},
+  { id:'sp-005', name:'1F Stairwell',      level:'1F', type:'Circulation', area:15, volume:60,   conditioned:false, bbox:{x:44,y:6,z:0,w:4,d:3.8,h:4}, zone:null },
+  { id:'sp-006', name:'2F Open Office A',  level:'2F', type:'Office',      area:180, volume:648, conditioned:true,  bbox:{x:0,y:0,z:4.2,w:18,d:10,h:3.6}, zone:{ area:1937.50, volume:6975, ceilingH:11.81, lighting:1.5, equip:2.0, totalLoad:7.8, cooling:{load:155000, airflow:4800, peakTemp:94.0}, heating:{load:72000, airflow:3000} }},
+  { id:'sp-007', name:'2F Open Office B',  level:'2F', type:'Office',      area:160, volume:576, conditioned:true,  bbox:{x:19,y:0,z:4.2,w:16,d:10,h:3.6}, zone:{ area:1722.22, volume:6200, ceilingH:11.81, lighting:1.5, equip:1.9, totalLoad:7.5, cooling:{load:138000, airflow:4200, peakTemp:93.8}, heating:{load:65000, airflow:2800} }},
+  { id:'sp-008', name:'2F Pantry',         level:'2F', type:'Break Room',  area:30, volume:108,  conditioned:true,  bbox:{x:36,y:0,z:4.2,w:6,d:5,h:3.6}, zone:{ area:322.92, volume:1162.50, ceilingH:11.81, lighting:1.2, equip:3.5, totalLoad:8.0, cooling:{load:28000, airflow:950, peakTemp:91.5}, heating:{load:12000, airflow:600} }},
+  { id:'sp-009', name:'2F Server Room',    level:'2F', type:'Data Center', area:20, volume:72,   conditioned:true,  bbox:{x:43,y:0,z:4.2,w:5,d:4,h:3.6}, zone:{ area:215.28, volume:775, ceilingH:11.81, lighting:0.8, equip:15.0, totalLoad:22.5, cooling:{load:95000, airflow:3200, peakTemp:90.0}, heating:null }},
+  { id:'sp-010', name:'3F Executive',      level:'3F', type:'Office',      area:80, volume:312,  conditioned:true,  bbox:{x:0,y:0,z:8.0,w:10,d:8,h:3.9}, zone:{ area:861.11, volume:3358.33, ceilingH:12.80, lighting:1.2, equip:1.2, totalLoad:5.5, cooling:{load:68000, airflow:2200, peakTemp:92.8}, heating:{load:42000, airflow:1600} }},
+  { id:'sp-011', name:'3F Meeting Large',  level:'3F', type:'Conference',  area:70, volume:273,  conditioned:true,  bbox:{x:11,y:0,z:8.0,w:10,d:7,h:3.9}, zone:{ area:753.47, volume:2938.54, ceilingH:12.80, lighting:1.8, equip:0.6, totalLoad:6.2, cooling:{load:62000, airflow:2000, peakTemp:93.0}, heating:{load:28000, airflow:1200} }},
+  { id:'sp-012', name:'3F Lounge',         level:'3F', type:'Lounge',      area:50, volume:195,  conditioned:true,  bbox:{x:22,y:0,z:8.0,w:8,d:6.3,h:3.9}, zone:{ area:538.20, volume:2099, ceilingH:12.80, lighting:1.0, equip:0.8, totalLoad:4.0, cooling:{load:38000, airflow:1300, peakTemp:91.8}, heating:{load:22000, airflow:900} }},
+  { id:'sp-013', name:'3F Roof Garden',    level:'3F', type:'Terrace',     area:100, volume:350, conditioned:false, bbox:{x:31,y:0,z:8.0,w:17,d:6,h:3.5}, zone:null },
+];
+
+const DEMO_ENERGY = {
+  metadata: { building:'MEP Sample Office Building', program:'EnergyPlus 24.1', environment:'Seoul Incheon Intl AP', simHours:8760 },
+  annualEndUse: { Heating:1250000, Cooling:3150000, 'Interior Lighting':980000, 'Interior Equipment':1420000, Fans:620000, Pumps:180000 },
+  buildingArea: { 'Total Building Area':11840, 'Net Conditioned Building Area':9580 },
+  siteSourceEnergy: { 'Total Site Energy':{ totalEnergy:7600000, perTotalArea:642, perCondArea:793 }, 'Total Source Energy':{ totalEnergy:22800000, perTotalArea:1926, perCondArea:2380 } },
+  comfortSummary: { 'Facility Heating Setpoint Not Met During Occupied Hours':12.5, 'Facility Cooling Setpoint Not Met During Occupied Hours':8.0 },
+  monthlyConsumption: {
+    'Electricity': {
+      'Interior Lighting': { monthly:[82000,74000,82000,79000,82000,79000,82000,82000,79000,82000,79000,82000], total:984000 },
+      'Interior Equipment': { monthly:[118000,107000,118000,114000,118000,114000,118000,118000,114000,118000,114000,118000], total:1389000 },
+      Cooling: { monthly:[85000,95000,180000,280000,420000,520000,580000,560000,400000,250000,120000,70000], total:3560000 },
+      Fans: { monthly:[52000,47000,52000,50000,52000,50000,52000,52000,50000,52000,50000,52000], total:611000 },
+    },
+    'Natural Gas': {
+      Heating: { monthly:[280000,220000,120000,40000,5000,0,0,0,5000,50000,180000,350000], total:1250000 },
+    }
+  }
+};
+
+// =========================================================
+// [Three.js 초기화]
+// =========================================================
+(function init() {
+  const canvas = document.getElementById('canvas3d');
+  const vp = document.getElementById('viewport');
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f172a);
+
+  camera = new THREE.PerspectiveCamera(50, vp.clientWidth / vp.clientHeight, 0.1, 2000);
+  camera.position.set(35, 25, 45);
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setSize(vp.clientWidth, vp.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.target.set(20, 5, 4);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(15, 30, 20);
+  scene.add(dir);
+
+  const grid = new THREE.GridHelper(80, 80, 0x334155, 0x1e293b);
+  scene.add(grid);
+
+  axesHelper = new THREE.AxesHelper(10);
+  scene.add(axesHelper);
+
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
+
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('click', onMouseClick);
+  window.addEventListener('resize', () => {
+    camera.aspect = vp.clientWidth / vp.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(vp.clientWidth, vp.clientHeight);
+  });
+
+  (function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+})();
+
+// =========================================================
+// [3D Space 박스 생성]
+// =========================================================
+function buildSpaces() {
+  spaceMeshes.forEach(s => { scene.remove(s.mesh); scene.remove(s.edges); });
+  spaceMeshes = [];
+  labelSprites.forEach(s => scene.remove(s));
+  labelSprites = [];
+
+  const opacity = parseFloat(document.getElementById('opacitySlider').value);
+
+  DEMO_SPACES.forEach((sp, idx) => {
+    const b = sp.bbox;
+    const geo = new THREE.BoxGeometry(b.w, b.h, b.d);
+    const isConditioned = sp.conditioned;
+    const spColor = isConditioned ? 0x3b82f6 : 0x64748b;
+    const mat = new THREE.MeshPhongMaterial({
+      color: spColor, transparent: true,
+      opacity: isConditioned ? opacity : opacity * 0.3,
+      side: THREE.DoubleSide, depthWrite: false
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(b.x + b.w/2, b.z + b.h/2, b.y + b.d/2);
+    mesh.userData = { spaceIdx: idx, space: sp };
+    scene.add(mesh);
+
+    const edgeGeo = new THREE.EdgesGeometry(geo);
+    const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color:0x60a5fa, transparent:true, opacity:0.7 }));
+    edges.position.copy(mesh.position);
+    scene.add(edges);
+
+    spaceMeshes.push({ mesh, edges, space: sp, idx });
+
+    const label = makeLabel(sp.name);
+    label.position.copy(mesh.position);
+    label.position.y += b.h/2 + 0.5;
+    scene.add(label);
+    labelSprites.push(label);
+  });
+
+  updateColors();
+  renderSpaceList();
+}
+
+function makeLabel(text) {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  c.width = 256; c.height = 64;
+  ctx.font = 'bold 22px Segoe UI, sans-serif';
+  ctx.fillStyle = 'rgba(226,232,240,0.9)';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, 128, 38);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, depthTest:false, transparent:true }));
+  sprite.scale.set(3, 0.75, 1);
+  return sprite;
+}
+
+// =========================================================
+// [히트맵 색상]
+// =========================================================
+function heatColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  let r,g,b;
+  if (t < 0.5) { const s=t*2; r=s; g=s; b=1-s*0.5; }
+  else { const s=(t-0.5)*2; r=1; g=1-s; b=0; }
+  return new THREE.Color(r,g,b);
+}
+
+function updateColors() {
+  const metric = document.getElementById('colorMetric').value;
+  const opacity = parseFloat(document.getElementById('opacitySlider').value);
+  const isNum = ['area','volume','totalLoad','coolingLoad','heatingLoad'].includes(metric);
+
+  if (isNum) {
+    const vals = spaceMeshes.map(s => {
+      const sp = s.space;
+      const hz = sp.zone;
+      switch(metric) {
+        case 'area': return sp.area||0;
+        case 'volume': return sp.volume||0;
+        case 'totalLoad': return hz?hz.totalLoad||0:0;
+        case 'coolingLoad': return hz&&hz.cooling?hz.cooling.load/1000:0;
+        case 'heatingLoad': return hz&&hz.heating?hz.heating.load/1000:0;
+        default: return 0;
+      }
+    });
+    const pos = vals.filter(v=>v>0);
+    const mn = pos.length ? Math.min(...pos) : 0;
+    const mx = pos.length ? Math.max(...pos) : 1;
+    const rng = mx-mn || 1;
+    spaceMeshes.forEach((s,i) => {
+      const t = vals[i]>0 ? (vals[i]-mn)/rng : 0;
+      s.mesh.material.color = vals[i]>0 ? heatColor(t) : new THREE.Color(0x334155);
+      s.mesh.material.opacity = vals[i]>0 ? opacity : opacity*0.3;
+      s.edges.material.color = vals[i]>0 ? heatColor(t) : new THREE.Color(0x475569);
+    });
+    updateLegendNum(metric, mn, mx);
+  } else {
+    let cats;
+    if (metric==='spaceType') cats = [...new Set(DEMO_SPACES.map(s=>s.type))];
+    else if (metric==='level') cats = [...new Set(DEMO_SPACES.map(s=>s.level))].sort();
+    else cats = ['Conditioned','Unconditioned'];
+
+    spaceMeshes.forEach(s => {
+      let ci;
+      if (metric==='spaceType') ci = cats.indexOf(s.space.type);
+      else if (metric==='level') ci = cats.indexOf(s.space.level);
+      else ci = s.space.conditioned ? 0 : 1;
+      const hex = parseInt(CAT_COLORS[ci % CAT_COLORS.length].replace('#',''),16);
+      s.mesh.material.color.setHex(hex);
+      s.mesh.material.opacity = opacity;
+      s.edges.material.color.setHex(hex);
+    });
+    updateLegendCat(cats);
+  }
+}
+
+function updateLegendNum(metric, mn, mx) {
+  document.getElementById('legendTitle').textContent = metric;
+  const cv = document.getElementById('legendBar'); const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,180,0);
+  for (let i=0;i<=10;i++) { const c=heatColor(i/10); g.addColorStop(i/10,`rgb(${c.r*255|0},${c.g*255|0},${c.b*255|0})`); }
+  ctx.clearRect(0,0,180,12); ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(0,0,180,12,6); ctx.fill();
+  const fmt = v => v>=1000?(v/1000).toFixed(1)+'k':v.toFixed(1);
+  document.getElementById('legendMin').textContent = fmt(mn);
+  document.getElementById('legendMax').textContent = fmt(mx);
+}
+function updateLegendCat(cats) {
+  document.getElementById('legendTitle').textContent = '';
+  const cv = document.getElementById('legendBar'); const ctx = cv.getContext('2d');
+  ctx.clearRect(0,0,180,12); const w=180/cats.length;
+  cats.forEach((c,i) => { ctx.fillStyle=CAT_COLORS[i%CAT_COLORS.length]; ctx.fillRect(i*w,0,w-1,12); });
+  document.getElementById('legendMin').textContent = cats[0]||'';
+  document.getElementById('legendMax').textContent = cats[cats.length-1]||'';
+}
+
+// =========================================================
+// [Space 목록 & 선택]
+// =========================================================
+function renderSpaceList() {
+  let html = '';
+  DEMO_SPACES.forEach(sp => {
+    const sel = selectedSpace === sp.id ? 'selected' : '';
+    const areaStr = fmtArea(sp.area);
+    const zoneIcon = sp.zone ? '🔗 ' : '';
+    html += `<div class="space-item ${sel}" data-id="${sp.id}">
+      <div class="name">${zoneIcon}${sp.name}</div>
+      <div class="meta">${sp.level} · ${sp.type} · ${areaStr}</div>
+    </div>`;
+  });
+  document.getElementById('spaceList').innerHTML = html;
+  document.getElementById('spaceList').onclick = e => {
+    const item = e.target.closest('.space-item');
+    if (item) selectSpace(item.dataset.id);
+  };
+}
+
+function selectSpace(id) {
+  selectedSpace = id;
+  const baseOpacity = parseFloat(document.getElementById('opacitySlider').value);
+
+  spaceMeshes.forEach(s => {
+    const isSel = s.space.id === id;
+    if (isSel) {
+      s.mesh.material.opacity = Math.min(baseOpacity * 2.5, 0.85);
+      s.edges.material.opacity = 1;
+      s.edges.material.color.setHex(0xfbbf24);
+      s.mesh.renderOrder = 999;
+      s.edges.renderOrder = 999;
+      controls.target.lerp(s.mesh.position.clone(), 0.5);
+    } else {
+      s.mesh.material.opacity = baseOpacity * 0.15;
+      s.edges.material.opacity = 0.15;
+      s.mesh.renderOrder = 0;
+      s.edges.renderOrder = 0;
+    }
+  });
+  renderSpaceList();
+  showDetail(id);
+  showProperties(id);
+}
+
+function showDetail(id) {
+  const panel = document.getElementById('rightPanel');
+  const sp = DEMO_SPACES.find(s => s.id === id);
+  if (!sp) { panel.classList.remove('visible'); return; }
+  panel.classList.add('visible');
+  document.getElementById('detailTitle').textContent = `📍 ${sp.name}`;
+
+  const cell = (l,v) => `<div class="detail-cell"><div class="dl">${l}</div><div class="dv">${v}</div></div>`;
+  let g = cell(L('prop_level'), sp.level) + cell(L('prop_type'), sp.type);
+  g += cell(L('prop_area'), fmtArea(sp.area));
+  g += cell(L('prop_volume'), fmtVol(sp.volume));
+  g += cell(L('prop_conditioned'), sp.conditioned ? 'Yes ✅' : 'No');
+  g += `<div class="detail-cell wide"><div class="dl">${L('cat_dimensions')}</div><div class="dv">${fmtLen(sp.bbox.w)} × ${fmtLen(sp.bbox.d)} × ${fmtLen(sp.bbox.h)}</div></div>`;
+  document.getElementById('detailGrid').innerHTML = g;
+
+  const htmSection = document.getElementById('htmDetail');
+  const htmContent = document.getElementById('htmDetailContent');
+  const hz = sp.zone;
+  if (hz) {
+    htmSection.style.display = 'block';
+    const metric = (l,v) => `<div class="htm-metric"><span class="metric-label">${l}</span><span class="metric-val">${v}</span></div>`;
+    let h = `<div style="font-size:.7rem;color:var(--text-dim);margin-bottom:6px;">HTM Zone: <b>${sp.name}</b></div>`;
+    h += `<div style="font-size:.62rem;color:var(--primary-light);font-weight:600;margin:4px 0 2px;">${L('space_info')}</div>`;
+    h += metric(L('zone_area'), U(hz.area,'area_ft2'));
+    h += metric(L('zone_volume'), U(hz.volume,'vol_ft3'));
+    h += metric(L('ceiling_h'), U(hz.ceilingH,'len_ft'));
+    h += metric(L('hvac_yn'), sp.conditioned ? 'Yes' : 'No');
+    h += `<div style="font-size:.62rem;color:var(--primary-light);font-weight:600;margin:8px 0 2px;">${L('internal_gains')}</div>`;
+    h += metric(L('lighting_d'), U(hz.lighting,'density_btuhft2'));
+    h += metric(L('equip_d'), U(hz.equip,'density_btuhft2'));
+    h += metric(L('total_load_d'), U(hz.totalLoad,'density_btuhft2'));
+    h += `<div style="font-size:.62rem;color:var(--primary-light);font-weight:600;margin:8px 0 2px;">${L('design_loads')}</div>`;
+    if (hz.cooling) {
+      h += metric(L('cooling_design'), U(hz.cooling.load/1e3,'load_kbtuh'));
+      h += metric(L('cooling_af'), U(hz.cooling.airflow,'cfm'));
+    } else { h += metric(L('cooling_design'), '—'); }
+    if (hz.heating) {
+      h += metric(L('heating_design'), U(hz.heating.load/1e3,'load_kbtuh'));
+      h += metric(L('heating_af'), U(hz.heating.airflow,'cfm'));
+    } else { h += metric(L('heating_design'), '—'); }
+    htmContent.innerHTML = h;
+  } else {
+    htmSection.style.display = 'none';
+  }
+}
+
+function showProperties(id) {
+  const panel = document.getElementById('propsPanel');
+  const content = document.getElementById('propsContent');
+  const sp = DEMO_SPACES.find(s => s.id === id);
+  if (!sp) { panel.classList.remove('visible'); return; }
+  panel.classList.add('visible');
+  document.getElementById('propsTitle').textContent = `📦 ${sp.name}`;
+
+  const catH = label => `<div class="props-cat-header" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed')"><span class="cat-chevron">▼</span>${label}</div>`;
+  const tbl = rows => `<table class="props-table">${rows.map(([k,v])=>`<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
+
+  let h = '';
+  h += catH(L('cat_dimensions'));
+  h += tbl([[L('prop_area'), fmtArea(sp.area)],[L('prop_volume'), fmtVol(sp.volume)],[L('prop_width'), fmtLen(sp.bbox.w)],[L('prop_depth'), fmtLen(sp.bbox.d)],[L('prop_height'), fmtLen(sp.bbox.h)]]);
+  h += catH(L('cat_identity'));
+  h += tbl([[L('prop_name'), sp.name],['ID', sp.id],[L('prop_level'), sp.level],[L('prop_type'), sp.type]]);
+  h += catH(L('cat_energy'));
+  const eRows = [[L('prop_conditioned'), sp.conditioned?'Yes ✅':'No ❌']];
+  if (sp.zone) {
+    eRows.push([L('prop_htm_zone'), `<span style="color:var(--success)">${sp.name}</span>`]);
+    eRows.push([L('lighting_d'), U(sp.zone.lighting,'density_btuhft2')]);
+    eRows.push([L('equip_d'), U(sp.zone.equip,'density_btuhft2')]);
+    eRows.push([L('total_load_d'), U(sp.zone.totalLoad,'density_btuhft2')]);
+    if (sp.zone.cooling) eRows.push([L('cooling_design'), U(sp.zone.cooling.load/1e3,'load_kbtuh')]);
+    if (sp.zone.heating) eRows.push([L('heating_design'), U(sp.zone.heating.load/1e3,'load_kbtuh')]);
+  }
+  h += tbl(eRows);
+  content.innerHTML = h;
+}
+
+// =========================================================
+// [마우스 인터랙션]
+// =========================================================
+function onMouseMove(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(spaceMeshes.map(s=>s.mesh));
+  const tooltip = document.getElementById('tooltip');
+  if (hits.length > 0) {
+    const sp = hits[0].object.userData.space;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (e.clientX - 350) + 'px';
+    tooltip.style.top = (e.clientY + 15) + 'px';
+    tooltip.innerHTML = `<div class="tt-name">${sp.name}</div>
+      <div class="tt-row"><span>${L('prop_level')}</span><span class="tt-val">${sp.level}</span></div>
+      <div class="tt-row"><span>${L('prop_area')}</span><span class="tt-val">${fmtArea(sp.area)}</span></div>
+      <div class="tt-row"><span>${L('prop_type')}</span><span class="tt-val">${sp.type}</span></div>`;
+    renderer.domElement.style.cursor = 'pointer';
+  } else {
+    tooltip.style.display = 'none';
+    renderer.domElement.style.cursor = 'default';
+  }
+}
+
+function onMouseClick(e) {
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(spaceMeshes.map(s=>s.mesh));
+  if (hits.length > 0) {
+    selectSpace(hits[0].object.userData.space.id);
+  }
+}
+
+// =========================================================
+// [에너지 분석 요약]
+// =========================================================
+let analysisTab = 'overview';
+let endUsePieInstance = null;
+let monthlyBarInstance = null;
+
+function renderAnalysis() {
+  const content = document.getElementById('analysisContent');
+  const rpt = DEMO_ENERGY;
+
+  let html = `<div class="analysis-tabs">`;
+  html += `<div class="analysis-tab ${analysisTab==='overview'?'active':''}" data-atab="overview">${L('tab_overview')}</div>`;
+  html += `<div class="analysis-tab ${analysisTab==='enduse'?'active':''}" data-atab="enduse">${L('tab_enduse')}</div>`;
+  html += `<div class="analysis-tab ${analysisTab==='monthly'?'active':''}" data-atab="monthly">${L('tab_monthly')}</div>`;
+  html += `</div>`;
+
+  if (analysisTab === 'overview') {
+    html += `<div class="summary-card"><div class="summary-card-title">${L('building_info')}</div>`;
+    html += `<div class="compare-row"><span class="cr-label">${L('building_name')}</span><span class="cr-val">${rpt.metadata.building}</span></div>`;
+    html += `<div class="compare-row"><span class="cr-label">${L('program')}</span><span class="cr-val" style="font-size:.6rem">${rpt.metadata.program}</span></div>`;
+    html += `<div class="compare-row"><span class="cr-label">${L('environment')}</span><span class="cr-val">${rpt.metadata.environment}</span></div>`;
+    html += `<div class="compare-row"><span class="cr-label">${L('zone_count')}</span><span class="cr-val">${DEMO_SPACES.filter(s=>s.zone).length} (${L('cond_count')}: ${DEMO_SPACES.filter(s=>s.conditioned).length})</span></div>`;
+    html += `</div>`;
+
+    html += `<div class="summary-card"><div class="summary-card-title">${L('site_source')}</div>`;
+    Object.entries(rpt.siteSourceEnergy).forEach(([k,v]) => {
+      html += `<div class="compare-row"><span class="cr-label">${k}</span><span class="cr-val">${U(v.totalEnergy/1e6,'energy_mbtu')}</span></div>`;
+    });
+    html += `</div>`;
+
+    html += `<div class="summary-card"><div class="summary-card-title">${L('building_area_title')}</div>`;
+    Object.entries(rpt.buildingArea).forEach(([k,v]) => {
+      html += `<div class="compare-row"><span class="cr-label">${k}</span><span class="cr-val">${U(v,'area_ft2')}</span></div>`;
+    });
+    html += `</div>`;
+
+    html += `<div class="summary-card"><div class="summary-card-title">${L('comfort')}</div>`;
+    Object.entries(rpt.comfortSummary).forEach(([k,v]) => {
+      html += `<div class="compare-row"><span class="cr-label" style="font-size:.62rem">${k}</span><span class="cr-val" style="color:${v>0?'var(--danger)':'var(--success)'}">${U(v,'hr')}</span></div>`;
+    });
+    html += `</div>`;
+  } else if (analysisTab === 'enduse') {
+    const aeu = rpt.annualEndUse;
+    const total = Object.values(aeu).reduce((s,v) => s+v, 0);
+    const EU_COLORS = { Heating:'#ef4444', Cooling:'#3b82f6', 'Interior Lighting':'#f59e0b', 'Interior Equipment':'#6b7280', Fans:'#ec4899', Pumps:'#8b5cf6' };
+    html += `<div class="summary-card"><div class="summary-card-title">${L('annual_energy')}</div>`;
+    const dispTotal = currentUnit==='SI' ? (total*CONV.btu_Wh/1e6).toFixed(2) : (total/1e6).toFixed(2);
+    const dispUnit = currentUnit==='SI' ? 'MWh' : 'MBtu';
+    html += `<div class="summary-kpi">${dispTotal} <span style="font-size:.7rem;color:var(--text-dim)">${dispUnit}</span></div>`;
+    Object.entries(aeu).sort((a,b)=>b[1]-a[1]).forEach(([name,val]) => {
+      const pct = (val/total*100);
+      const color = EU_COLORS[name]||'#64748b';
+      html += `<div class="eu-row"><span class="eu-label"><span class="eu-dot" style="background:${color}"></span>${name}</span>`;
+      html += `<div class="eu-bar-bg"><div class="eu-bar" style="width:${pct}%;background:${color}"></div></div>`;
+      html += `<span class="eu-val">${U(val/1e3,'energy_kbtu')} (${pct.toFixed(1)}%)</span></div>`;
+    });
+    html += `</div>`;
+  } else if (analysisTab === 'monthly') {
+    const MONTHS = L('months_short');
+    const colUnit = currentUnit==='SI' ? 'kWh' : 'kBtu';
+    const fmtCell = v => v <= 0 ? '—' : (currentUnit==='SI' ? (v*CONV.btu_Wh).toFixed(1) : (v/1e3).toFixed(1));
+    Object.entries(rpt.monthlyConsumption).forEach(([fuel, endUses]) => {
+      html += `<div class="summary-card"><div class="summary-card-title">${fuel} ${L('monthly_suffix')}</div>`;
+      html += `<div style="overflow-x:auto;"><table style="width:100%;font-size:.55rem;border-collapse:collapse;">`;
+      html += `<tr style="color:var(--text-dim);"><td style="padding:2px 3px;">End Use</td>`;
+      MONTHS.forEach(m => { html += `<td style="padding:2px 2px;text-align:right;">${m}</td>`; });
+      html += `<td style="padding:2px 3px;text-align:right;font-weight:600;">Total</td></tr>`;
+      Object.entries(endUses).forEach(([eu, data]) => {
+        html += `<tr><td style="padding:2px 3px;color:var(--text-dim);">${eu}</td>`;
+        data.monthly.forEach(v => { html += `<td style="padding:2px 2px;text-align:right;">${fmtCell(v)}</td>`; });
+        html += `<td style="padding:2px 3px;text-align:right;font-weight:600;">${fmtCell(data.total)}</td></tr>`;
+      });
+      html += `</table></div></div>`;
+    });
+  }
+
+  content.innerHTML = html;
+  content.querySelectorAll('[data-atab]').forEach(el => {
+    el.addEventListener('click', () => { analysisTab = el.dataset.atab; renderAnalysis(); });
+  });
+
+  // Chart for enduse
+  setTimeout(() => {
+    if (analysisTab === 'enduse') renderEndUsePie();
+    else if (endUsePieInstance) { endUsePieInstance.destroy(); endUsePieInstance = null; document.getElementById('endUsePieWrap').style.display = 'none'; }
+    if (analysisTab === 'monthly') renderMonthlyBar();
+    else if (monthlyBarInstance) { monthlyBarInstance.destroy(); monthlyBarInstance = null; document.getElementById('monthlyBarWrap').style.display = 'none'; }
+    // Update panel height
+    const body = document.getElementById('analysisBody');
+    if (!body.classList.contains('collapsed')) body.style.maxHeight = body.scrollHeight + 500 + 'px';
+  }, 50);
+}
+
+function renderEndUsePie() {
+  if (endUsePieInstance) { endUsePieInstance.destroy(); endUsePieInstance = null; }
+  const aeu = DEMO_ENERGY.annualEndUse;
+  const entries = Object.entries(aeu).sort((a,b)=>b[1]-a[1]);
+  const COLS = ['#ef4444','#3b82f6','#f59e0b','#6b7280','#ec4899','#8b5cf6'];
+  const wrap = document.getElementById('endUsePieWrap');
+  wrap.style.display = 'block';
+  const ctx = document.getElementById('endUsePieChart').getContext('2d');
+  endUsePieInstance = new Chart(ctx, {
+    type:'doughnut',
+    data:{ labels:entries.map(e=>e[0]), datasets:[{ data:entries.map(e=>e[1]), backgroundColor:COLS, borderWidth:0 }] },
+    options:{ responsive:true, maintainAspectRatio:true, plugins:{ legend:{ position:'right', labels:{ color:'#94a3b8', font:{size:9}, boxWidth:10, padding:4 } } } }
+  });
+}
+
+function renderMonthlyBar() {
+  if (monthlyBarInstance) { monthlyBarInstance.destroy(); monthlyBarInstance = null; }
+  const mc = DEMO_ENERGY.monthlyConsumption;
+  const monthTotals = new Array(12).fill(0);
+  Object.values(mc).forEach(endUses => { Object.values(endUses).forEach(d => { d.monthly.forEach((v,i) => monthTotals[i]+=v); }); });
+  const MONTHS = L('months');
+  const wrap = document.getElementById('monthlyBarWrap');
+  wrap.style.display = 'block';
+  const ctx = document.getElementById('monthlyBarChart').getContext('2d');
+  const barData = currentUnit==='SI' ? monthTotals.map(v=>v*CONV.btu_Wh) : monthTotals.map(v=>v/1e3);
+  const barUnit = currentUnit==='SI' ? 'kWh' : 'kBtu';
+  monthlyBarInstance = new Chart(ctx, {
+    type:'bar',
+    data:{ labels:MONTHS, datasets:[{ data:barData, backgroundColor:'rgba(59,130,246,.6)', borderRadius:3, borderSkipped:false }] },
+    options:{ responsive:true, maintainAspectRatio:true, plugins:{ legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} ${barUnit}`}} },
+      scales:{ x:{ ticks:{color:'#94a3b8',font:{size:8}}, grid:{display:false} }, y:{ ticks:{color:'#94a3b8',font:{size:8},callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v.toFixed(0)}, grid:{color:'rgba(51,65,85,.3)'} } }
+    }
+  });
+}
+
+// =========================================================
+// [UI 이벤트]
+// =========================================================
+function refreshUI() {
+  document.getElementById('headerSubtitle').textContent = L('subtitle');
+  document.getElementById('labelAnalysis').textContent = L('analysis_title');
+  document.getElementById('labelControls').textContent = L('controls_title');
+  document.getElementById('labelSpaces').textContent = L('spaces_title');
+  document.getElementById('lbl_colorby').textContent = L('color_by');
+  document.getElementById('lbl_sopacity').textContent = L('space_opacity');
+  const banner = document.getElementById('demoBanner');
+  if (currentLang === 'en') {
+    banner.querySelector('.db-title').textContent = '📊 DEMO — Running with sample data';
+    banner.querySelector('.db-sub').textContent = 'Load GLB, JSON, HTM files for actual use';
+  } else {
+    banner.querySelector('.db-title').textContent = '📊 DEMO — 샘플 데이터로 시연 중';
+    banner.querySelector('.db-sub').textContent = '실제 사용 시 GLB, JSON, HTM 파일을 로드하세요';
+  }
+  updateColors();
+  renderSpaceList();
+  renderAnalysis();
+  if (selectedSpace) { showDetail(selectedSpace); showProperties(selectedSpace); }
+}
+
+// Panel collapse
+function setupPanel(headerId, bodyId) {
+  const header = document.getElementById(headerId);
+  const body = document.getElementById(bodyId);
+  if (!header || !body) return;
+  header.addEventListener('click', () => {
+    header.classList.toggle('collapsed');
+    body.classList.toggle('collapsed');
+    if (!body.classList.contains('collapsed')) {
+      body.style.maxHeight = body.scrollHeight + 500 + 'px';
+    }
+  });
+  // Initialize max-height
+  if (!body.classList.contains('collapsed')) {
+    body.style.maxHeight = body.scrollHeight + 500 + 'px';
+  }
+}
+
+// Init
+setupPanel('analysisHeader', 'analysisBody');
+setupPanel('controlsHeader', 'controlsBody');
+setupPanel('spaceListHeader', 'spaceListBody');
+
+// Unit toggle
+document.getElementById('unitToggle').addEventListener('click', e => {
+  const btn = e.target.closest('.toggle-btn');
+  if (!btn || btn.classList.contains('active')) return;
+  currentUnit = btn.dataset.val;
+  document.querySelectorAll('#unitToggle .toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+  refreshUI();
+});
+
+// Lang toggle
+document.getElementById('langToggle').addEventListener('click', e => {
+  const btn = e.target.closest('.toggle-btn');
+  if (!btn || btn.classList.contains('active')) return;
+  currentLang = btn.dataset.val;
+  document.querySelectorAll('#langToggle .toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+  refreshUI();
+});
+
+// Color metric
+document.getElementById('colorMetric').addEventListener('change', updateColors);
+document.getElementById('opacitySlider').addEventListener('input', updateColors);
+
+// Toolbar buttons
+document.getElementById('btnReset').addEventListener('click', () => {
+  selectedSpace = null;
+  camera.position.set(35, 25, 45);
+  controls.target.set(20, 5, 4);
+  updateColors();
+  renderSpaceList();
+  document.getElementById('rightPanel').classList.remove('visible');
+  document.getElementById('propsPanel').classList.remove('visible');
+});
+
+document.getElementById('btnSpaces').addEventListener('click', function() {
+  spacesVisible = !spacesVisible;
+  this.classList.toggle('active', spacesVisible);
+  spaceMeshes.forEach(s => { s.mesh.visible = spacesVisible; s.edges.visible = spacesVisible; });
+});
+
+document.getElementById('btnAxes').addEventListener('click', function() {
+  showAxes = !showAxes;
+  this.classList.toggle('active', showAxes);
+  axesHelper.visible = showAxes;
+});
+
+document.getElementById('btnLabels').addEventListener('click', function() {
+  showLabels = !showLabels;
+  this.classList.toggle('active', showLabels);
+  labelSprites.forEach(l => l.visible = showLabels);
+});
+
+document.getElementById('closeRight').addEventListener('click', () => {
+  document.getElementById('rightPanel').classList.remove('visible');
+});
+document.getElementById('propsClose').addEventListener('click', () => {
+  document.getElementById('propsPanel').classList.remove('visible');
+});
+
+// Hide demo banner after 8 seconds
+setTimeout(() => {
+  const banner = document.getElementById('demoBanner');
+  banner.style.transition = 'opacity 1s';
+  banner.style.opacity = '0';
+  setTimeout(() => banner.style.display = 'none', 1000);
+}, 8000);
+
+// =========================================================
+// [초기화] 데모 데이터로 앱 시작
+// =========================================================
+buildSpaces();
+renderAnalysis();
+
+// Auto-select first space after 1.5s for showcase effect
+setTimeout(() => selectSpace('sp-002'), 1500);
+
+</script>
+</body>
+</html>

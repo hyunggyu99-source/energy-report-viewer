@@ -1,0 +1,3057 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Energy 3D Viewer — Space × Zone Heatmap</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<!-- 스타일시트: css/viewer.css 로 분리됨 (인라인 폴백 유지) -->
+<link rel="stylesheet" href="css/viewer.css">
+<style>
+:root {
+  --bg: #0f172a; --panel: #1e293b; --panel-border: #334155;
+  --text: #e2e8f0; --text-dim: #94a3b8;
+  --primary: #3b82f6; --primary-light: #60a5fa;
+  --accent: #f59e0b; --success: #10b981; --danger: #ef4444;
+  --radius: 10px;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'Segoe UI',-apple-system,sans-serif; background:var(--bg); color:var(--text); overflow:hidden; height:100vh; }
+.app { display:flex; height:100vh; }
+.sidebar { width:360px; min-width:360px; background:var(--panel); border-right:1px solid var(--panel-border); display:flex; flex-direction:column; overflow-y:auto; overflow-x:hidden; z-index:10; }
+.viewport { flex:1; position:relative; }
+
+.sidebar-header { padding:16px 20px; border-bottom:1px solid var(--panel-border); }
+.sidebar-header h1 { font-size:1.1rem; font-weight:700; display:flex; align-items:center; gap:8px; }
+.sidebar-header p { font-size:.75rem; color:var(--text-dim); margin-top:4px; }
+
+.drop-section { border-bottom:1px solid var(--panel-border); }
+.drop-section > .panel-body { padding:12px 20px; }
+.drop-section h3 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); margin-bottom:6px; }
+.drop-box {
+  border:2px dashed var(--panel-border); border-radius:var(--radius); padding:16px; text-align:center;
+  cursor:pointer; transition:all .2s; min-height:60px;
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:3px;
+}
+.drop-box:hover, .drop-box.drag-over { border-color:var(--primary); background:rgba(59,130,246,.08); }
+.drop-box .icon { font-size:1.3rem; }
+.drop-box .label { font-size:.78rem; color:var(--text-dim); }
+.drop-box .filename { font-size:.75rem; color:var(--success); font-weight:600; }
+.drop-box.loaded { border-color:var(--success); border-style:solid; background:rgba(16,185,129,.06); }
+.drop-box.error { border-color:var(--danger); border-style:solid; background:rgba(239,68,68,.06); }
+
+.match-status { padding:6px 10px; border-radius:6px; font-size:.72rem; margin-top:4px; }
+.match-status.good { background:rgba(16,185,129,.12); color:var(--success); }
+.match-status.partial { background:rgba(245,158,11,.12); color:var(--accent); }
+.match-status.none { background:rgba(148,163,184,.1); color:var(--text-dim); }
+
+.controls { border-bottom:1px solid var(--panel-border); }
+.controls > .panel-body { padding:12px 20px; }
+.control-row { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+.control-row label { font-size:.75rem; color:var(--text-dim); min-width:72px; }
+.control-row select, .control-row input[type=range] { flex:1; background:var(--bg); color:var(--text); border:1px solid var(--panel-border); border-radius:6px; padding:4px 8px; font-size:.75rem; }
+.control-row select { cursor:pointer; }
+.control-row input[type=range] { cursor:pointer; padding:0; }
+.control-row input[type=checkbox] { width:auto; flex:none; cursor:pointer; }
+
+.space-list { flex:1; overflow-y:auto; padding:8px 12px; }
+.space-list::-webkit-scrollbar { width:5px; }
+.space-list::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:3px; }
+.space-item {
+  padding:8px 10px; border-radius:7px; margin-bottom:3px; cursor:pointer;
+  border:1px solid transparent; transition:all .15s; position:relative; overflow:hidden;
+}
+.space-item:hover { background:rgba(255,255,255,.04); border-color:var(--panel-border); }
+.space-item.selected { background:rgba(59,130,246,.1); border-color:var(--primary); }
+.space-item .name { font-size:.8rem; font-weight:600; }
+.space-item .meta { font-size:.68rem; color:var(--text-dim); margin-top:1px; }
+.space-item .energy-bar { position:absolute; left:0; bottom:0; height:3px; border-radius:0 0 7px 7px; transition:width .3s; }
+.space-item .value { font-size:.68rem; font-weight:700; float:right; margin-top:-14px; }
+
+/* Right floating detail panel on viewport */
+.right-panel {
+  position:absolute; top:12px; right:12px; bottom:80px; width:320px;
+  background:rgba(30,41,59,.92); backdrop-filter:blur(12px);
+  border:1px solid var(--panel-border); border-radius:12px;
+  z-index:8; display:none; overflow-y:auto; padding:16px;
+}
+.right-panel.visible { display:block; }
+.right-panel h3 { font-size:.9rem; font-weight:700; margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+.right-panel .close-btn { margin-left:auto; cursor:pointer; background:none; border:none; color:var(--text-dim); font-size:1rem; }
+.right-panel .close-btn:hover { color:var(--text); }
+.detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:5px; }
+.detail-cell { background:rgba(15,23,42,.6); border-radius:6px; padding:6px 8px; }
+.detail-cell .dl { font-size:.62rem; color:var(--text-dim); text-transform:uppercase; letter-spacing:.04em; }
+.detail-cell .dv { font-size:.85rem; font-weight:700; margin-top:1px; }
+.detail-cell.wide { grid-column:1/-1; }
+.htm-section { margin-top:12px; padding-top:12px; border-top:1px solid var(--panel-border); }
+.htm-section h4 { font-size:.75rem; font-weight:600; color:var(--primary-light); margin-bottom:6px; }
+.htm-metric { display:flex; justify-content:space-between; align-items:center; padding:3px 0; font-size:.72rem; }
+.htm-metric .metric-label { color:var(--text-dim); }
+.htm-metric .metric-val { font-weight:700; }
+
+/* HTM report chips */
+.htm-chips { display:flex; gap:4px; margin-top:4px; flex-wrap:wrap; }
+.htm-chip {
+  display:inline-flex; align-items:center; gap:3px; background:rgba(59,130,246,.15);
+  border:1px solid rgba(59,130,246,.3); border-radius:12px; padding:2px 8px;
+  font-size:.65rem; color:var(--primary-light); cursor:pointer;
+}
+.htm-chip.active { background:rgba(59,130,246,.3); border-color:var(--primary); }
+.htm-chip .chip-x { cursor:pointer; opacity:.6; }
+.htm-chip .chip-x:hover { opacity:1; }
+
+/* Analysis section in sidebar */
+.analysis-section { border-bottom:1px solid var(--panel-border); display:none; }
+.analysis-section.visible { display:block; }
+.analysis-section > .panel-body { padding:10px 20px; }
+.analysis-section h3 { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--accent); margin-bottom:6px; }
+.compare-row { display:flex; justify-content:space-between; font-size:.72rem; padding:2px 0; border-bottom:1px solid rgba(51,65,85,.3); }
+.compare-row .cr-label { color:var(--text-dim); }
+.compare-row .cr-val { font-weight:600; }
+.compare-row .cr-val.up { color:var(--danger); }
+.compare-row .cr-val.down { color:var(--success); }
+.compare-row .cr-diff { font-size:.65rem; margin-left:6px; }
+
+/* End-use table rows */
+.eu-row { display:flex; justify-content:space-between; align-items:center; font-size:.7rem; padding:3px 0; border-bottom:1px solid rgba(51,65,85,.2); }
+.eu-label { display:flex; align-items:center; gap:5px; color:var(--text-dim); }
+.eu-dot { width:8px; height:8px; border-radius:50%; display:inline-block; flex-shrink:0; }
+.eu-val { font-weight:600; font-variant-numeric:tabular-nums; }
+.eu-bar-bg { flex:1; height:6px; background:rgba(51,65,85,.4); border-radius:3px; margin:0 8px; min-width:30px; }
+.eu-bar { height:100%; border-radius:3px; transition:width .3s; }
+.summary-card { background:rgba(15,23,42,.5); border-radius:6px; padding:8px 10px; margin-bottom:6px; }
+.summary-card-title { font-size:.68rem; font-weight:600; margin-bottom:4px; display:flex; align-items:center; gap:5px; }
+.summary-kpi { font-size:1.1rem; font-weight:700; color:var(--primary-light); margin-bottom:2px; }
+.summary-sub { font-size:.65rem; color:var(--text-dim); }
+.analysis-tabs { display:flex; gap:2px; margin-bottom:8px; }
+.analysis-tab { flex:1; padding:4px 6px; font-size:.65rem; text-align:center; cursor:pointer; border-radius:5px; background:rgba(51,65,85,.3); color:var(--text-dim); border:1px solid transparent; transition:all .15s; }
+.analysis-tab.active { background:rgba(59,130,246,.15); border-color:var(--primary); color:var(--primary-light); }
+.analysis-tab:hover { background:rgba(59,130,246,.1); }
+
+/* Unit badge */
+.unit-badge { font-size:.55rem; padding:1px 4px; border-radius:3px; background:rgba(59,130,246,.15); color:var(--primary-light); margin-left:3px; vertical-align:super; }
+
+.viewport-toolbar { position:absolute; top:12px; left:50%; transform:translateX(-50%); display:flex; gap:6px; z-index:5; flex-wrap:wrap; }
+.vp-btn {
+  background:rgba(30,41,59,.85); backdrop-filter:blur(8px); border:1px solid var(--panel-border);
+  color:var(--text); padding:6px 12px; border-radius:7px; cursor:pointer; font-size:.75rem;
+  display:flex; align-items:center; gap:4px; transition:all .15s;
+}
+.vp-btn:hover { background:rgba(59,130,246,.2); border-color:var(--primary); }
+.vp-btn.active { background:rgba(59,130,246,.25); border-color:var(--primary); color:var(--primary-light); }
+
+.legend {
+  position:absolute; bottom:16px; left:50%; transform:translateX(-50%);
+  background:rgba(30,41,59,.9); backdrop-filter:blur(8px); border:1px solid var(--panel-border);
+  border-radius:10px; padding:8px 16px; z-index:5; display:none;
+}
+.legend.visible { display:flex; align-items:center; gap:10px; }
+.legend-title { font-size:.68rem; color:var(--text-dim); font-weight:600; text-transform:uppercase; }
+.legend-bar { width:180px; height:12px; border-radius:6px; }
+.legend-labels { display:flex; justify-content:space-between; width:180px; }
+.legend-labels span { font-size:.62rem; color:var(--text-dim); }
+
+.tooltip {
+  position:absolute; pointer-events:none; background:rgba(15,23,42,.95); backdrop-filter:blur(8px);
+  border:1px solid var(--panel-border); border-radius:7px; padding:8px 12px;
+  font-size:.72rem; z-index:20; display:none; max-width:260px;
+}
+.tooltip .tt-name { font-weight:700; font-size:.8rem; margin-bottom:3px; }
+.tooltip .tt-row { display:flex; justify-content:space-between; gap:14px; color:var(--text-dim); }
+.tooltip .tt-val { color:var(--text); font-weight:600; }
+
+.status-bar {
+  position:absolute; bottom:16px; right:16px; background:rgba(30,41,59,.9);
+  border:1px solid var(--panel-border); border-radius:8px; padding:6px 12px;
+  font-size:.7rem; color:var(--text-dim); z-index:5;
+}
+
+.welcome-overlay {
+  position:absolute; inset:0; background:rgba(15,23,42,.7); backdrop-filter:blur(4px);
+  display:flex; align-items:center; justify-content:center; z-index:15;
+}
+.welcome-card {
+  background:var(--panel); border:1px solid var(--panel-border); border-radius:16px;
+  padding:36px 44px; text-align:center; max-width:420px;
+}
+.welcome-card h2 { font-size:1.2rem; margin-bottom:6px; }
+.welcome-card p { font-size:.82rem; color:var(--text-dim); line-height:1.6; }
+.welcome-card .step { display:flex; align-items:flex-start; gap:10px; text-align:left; margin-top:12px; }
+.welcome-card .step-num { background:var(--primary); color:white; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:.68rem; font-weight:700; flex-shrink:0; }
+.welcome-card .step-text { font-size:.78rem; color:var(--text-dim); }
+.welcome-card .step-text strong { color:var(--text); }
+
+/* ===== Unit/Lang Toggle ===== */
+.settings-row { display:flex; align-items:center; gap:6px; margin-top:8px; flex-wrap:wrap; }
+.toggle-group { display:flex; gap:1px; background:var(--bg); border-radius:6px; padding:2px; }
+.toggle-btn { padding:3px 8px; border-radius:4px; border:none; background:transparent; color:var(--text-dim); font-size:.65rem; cursor:pointer; font-weight:600; transition:all .15s; font-family:inherit; }
+.toggle-btn.active { background:var(--primary); color:white; }
+.toggle-btn:hover:not(.active) { background:rgba(59,130,246,.15); }
+
+/* ===== Collapsible Panels ===== */
+.panel-section { border-bottom:1px solid var(--panel-border); }
+.panel-header {
+  display:flex; align-items:center; padding:8px 14px; cursor:pointer; user-select:none; gap:6px;
+  transition:background .15s;
+}
+.panel-header:hover { background:rgba(255,255,255,.03); }
+.panel-header .panel-chevron { font-size:.55rem; color:var(--text-dim); transition:transform .25s; flex-shrink:0; width:12px; text-align:center; }
+.panel-header.collapsed .panel-chevron { transform:rotate(-90deg); }
+.panel-header .panel-title { font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim); flex:1; }
+.panel-header .drag-handle { cursor:grab; color:var(--panel-border); font-size:.75rem; opacity:.5; padding:0 2px; }
+.panel-header .drag-handle:hover { opacity:1; color:var(--text-dim); }
+.panel-body { transition:max-height .3s ease, opacity .25s ease, padding .2s ease; overflow:hidden; }
+.panel-body.collapsed { max-height:0 !important; opacity:0; padding-top:0 !important; padding-bottom:0 !important; }
+.panel-section.dragging { opacity:.4; }
+.panel-section.drag-over-above { box-shadow:inset 0 2px 0 var(--primary); }
+.panel-section.drag-over-below { box-shadow:inset 0 -2px 0 var(--primary); }
+
+/* ===== Revit-style Properties Panel (floating) ===== */
+.props-panel {
+  position:absolute; left:12px; top:12px; bottom:80px; width:300px;
+  background:rgba(30,41,59,.95); backdrop-filter:blur(12px);
+  border:1px solid var(--panel-border); border-radius:12px;
+  z-index:9; overflow-y:auto; overflow-x:hidden;
+  display:none; transition:width .25s ease;
+}
+.props-panel.visible { display:block; }
+.props-panel.expanded { width:520px; }
+.props-panel::-webkit-scrollbar { width:5px; }
+.props-panel::-webkit-scrollbar-thumb { background:var(--panel-border); border-radius:3px; }
+.props-header {
+  display:flex; align-items:center; gap:6px; padding:8px 12px;
+  background:rgba(59,130,246,.1); border-bottom:1px solid var(--panel-border);
+  position:sticky; top:0; z-index:2; backdrop-filter:blur(8px);
+}
+.props-header .props-icon { font-size:1rem; }
+.props-header .props-type-select {
+  flex:1; background:var(--bg); border:1px solid var(--panel-border);
+  border-radius:5px; color:var(--text); padding:3px 8px; font-size:.72rem; font-family:inherit;
+}
+.props-header .props-expand, .props-header .props-close {
+  background:none; border:1px solid var(--panel-border); color:var(--text-dim);
+  font-size:.75rem; cursor:pointer; padding:3px 6px; border-radius:4px; transition:all .15s;
+}
+.props-header .props-expand:hover, .props-header .props-close:hover {
+  background:rgba(59,130,246,.15); color:var(--text); border-color:var(--primary);
+}
+.props-header .props-expand.active {
+  background:rgba(59,130,246,.2); color:var(--primary-light); border-color:var(--primary);
+}
+.props-cat-header {
+  background:rgba(59,130,246,.12); padding:4px 14px; font-size:.68rem; font-weight:700;
+  color:var(--primary-light); text-transform:uppercase; letter-spacing:.04em;
+  border-bottom:1px solid rgba(59,130,246,.15); cursor:pointer; user-select:none;
+  display:flex; align-items:center; gap:5px;
+}
+.props-cat-header:hover { background:rgba(59,130,246,.18); }
+.props-cat-header .cat-chevron { font-size:.5rem; transition:transform .2s; }
+.props-cat-header.collapsed .cat-chevron { transform:rotate(-90deg); }
+.props-table { width:100%; border-collapse:collapse; }
+.props-table.collapsed { display:none; }
+.props-table td {
+  padding:3px 14px; font-size:.7rem; border-bottom:1px solid rgba(51,65,85,.25);
+  vertical-align:top;
+}
+.props-table td:first-child { color:var(--text-dim); width:42%; white-space:nowrap; }
+.props-table td:last-child { color:var(--text); font-weight:500; word-break:break-word; }
+.props-table tr:hover { background:rgba(59,130,246,.04); }
+.props-empty { padding:16px; text-align:center; color:var(--text-dim); font-size:.75rem; }
+
+/* When expanded, use 2-column layout for tables */
+.props-panel.expanded .props-table td:first-child { width:35%; }
+.props-panel.expanded .props-table td { font-size:.72rem; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <h1>🏢 Energy 3D Viewer</h1>
+      <p id="headerSubtitle">Revit Space × EnergyPlus Zone Heatmap</p>
+      <div class="settings-row">
+        <div class="toggle-group" id="unitToggle">
+          <button class="toggle-btn active" data-val="IP">IP</button>
+          <button class="toggle-btn" data-val="SI">SI</button>
+        </div>
+        <div class="toggle-group" id="langToggle">
+          <button class="toggle-btn active" data-val="ko">한국어</button>
+          <button class="toggle-btn" data-val="en">EN</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="drop-section" id="sectionGLB" data-panel-key="glb">
+      <h3 id="labelGLB">1. 3D Model (GLB)</h3>
+      <div class="drop-box" id="dropGLB"><div class="icon">🏗️</div><div class="label">model.glb 드래그 또는 클릭</div></div>
+      <input type="file" id="inputGLB" accept=".glb,.gltf" style="display:none">
+    </div>
+
+    <div class="drop-section" id="sectionJSON" data-panel-key="json">
+      <h3 id="labelJSON">2. Space Data (JSON)</h3>
+      <div class="drop-box" id="dropJSON"><div class="icon">📦</div><div class="label">energy-spaces.json 드래그 또는 클릭</div></div>
+      <input type="file" id="inputJSON" accept=".json" style="display:none">
+    </div>
+
+    <div class="drop-section" id="sectionHTM" data-panel-key="htm">
+      <h3 id="labelHTM">3. Energy Report (HTM) — 1~2개</h3>
+      <div class="drop-box" id="dropHTM"><div class="icon">📊</div><div class="label">eplustbl.htm 드래그 또는 클릭 (여러 개 가능)</div></div>
+      <input type="file" id="inputHTM" accept=".htm,.html" multiple style="display:none">
+      <div class="htm-chips" id="htmChips"></div>
+      <div class="match-status none" id="matchStatus">파일을 로드하세요</div>
+      <!-- refreshUI() will update this text -->
+    </div>
+
+    <div class="analysis-section" id="analysisSection" data-panel-key="analysis">
+      <h3 id="labelAnalysis">에너지 분석 요약</h3>
+      <div id="analysisContent"></div>
+      <div id="endUsePieWrap" style="display:none;margin-top:8px;">
+        <canvas id="endUsePieChart" width="260" height="200"></canvas>
+      </div>
+      <div id="monthlyBarWrap" style="display:none;margin-top:8px;">
+        <canvas id="monthlyBarChart" width="260" height="180"></canvas>
+      </div>
+    </div>
+
+    <div class="controls" id="controlsSection" data-panel-key="controls" style="display:none">
+      <div class="control-row" id="modelControls" style="display:none">
+        <label id="lbl_model">건물 모델</label>
+        <select id="modelDisplay"><option value="solid" id="opt_solid">불투명</option><option value="transparent" selected id="opt_trans">반투명</option><option value="wireframe" id="opt_wire">와이어프레임</option><option value="hidden" id="opt_hide">숨기기</option></select>
+      </div>
+      <div class="control-row" id="modelOpacityRow" style="display:none">
+        <label id="lbl_mopacity">모델 투명도</label>
+        <input type="range" id="modelOpacity" min="0.05" max="1.0" step="0.05" value="0.25">
+      </div>
+      <!-- Dimension unit is now controlled by SI/IP toggle -->
+      <select id="unitSelect" style="display:none"><option value="ft">ft</option><option value="mm">mm</option></select>
+      <div class="control-row">
+        <label id="lbl_colorby">색상 기준</label>
+        <select id="colorMetric">
+          <option value="spaceType" id="cm_st">Space Type</option><option value="level" id="cm_lv">층 (Level)</option>
+          <option value="area" id="cm_ar">면적</option><option value="volume" id="cm_vo">체적</option>
+          <option value="conditioned" id="cm_co">공조 여부</option>
+          <option value="lightingDensity" disabled id="cm_ld">조명밀도 (HTM)</option>
+          <option value="plugDensity" disabled id="cm_pd">장비밀도 (HTM)</option>
+          <option value="totalLoad" disabled id="cm_tl">총부하 (HTM)</option>
+          <option value="coolingLoad" disabled id="cm_cl">냉방부하 (HTM)</option>
+          <option value="heatingLoad" disabled id="cm_hl">난방부하 (HTM)</option>
+        </select>
+      </div>
+      <div class="control-row">
+        <label id="lbl_sopacity">Space 투명도</label>
+        <input type="range" id="opacitySlider" min="0.05" max="0.95" step="0.05" value="0.45">
+      </div>
+      <div class="control-row">
+        <label id="lbl_wire">와이어프레임</label>
+        <input type="checkbox" id="wireframeToggle">
+      </div>
+      <div class="control-row">
+        <label id="lbl_valid">유효 공간만</label>
+        <input type="checkbox" id="validOnlyToggle" checked>
+        <span style="font-size:.65rem;color:var(--text-dim)" id="validCount"></span>
+      </div>
+      <div class="control-row" id="surfaceControls" style="display:none">
+        <label id="lbl_surf">해석 표면</label>
+        <select id="surfaceDisplay">
+          <option value="colored" selected id="sf_col">타입별 색상</option>
+          <option value="wireframe" id="sf_wire">와이어프레임</option>
+          <option value="hidden" id="sf_hide">숨기기</option>
+        </select>
+      </div>
+      <div class="control-row" id="surfaceOpacityRow" style="display:none">
+        <label id="lbl_sfopacity">표면 투명도</label>
+        <input type="range" id="surfaceOpacity" min="0.05" max="0.8" step="0.05" value="0.35">
+      </div>
+    </div>
+
+    <div class="space-list" id="spaceList"></div>
+  </div>
+
+  <div class="viewport" id="viewport">
+    <canvas id="canvas3d"></canvas>
+
+    <!-- Revit-style Properties Panel (floating on viewport) -->
+    <div class="props-panel" id="propsPanel">
+      <div class="props-header">
+        <span class="props-icon" id="propsIcon">📋</span>
+        <select class="props-type-select" id="propsTypeSelect" disabled></select>
+        <button class="props-expand" id="propsExpand" title="Expand / Collapse">⇔</button>
+        <button class="props-close" id="propsClose" title="Close">✕</button>
+      </div>
+      <div id="propsContent"></div>
+    </div>
+    <div class="viewport-toolbar">
+      <button class="vp-btn" id="btnReset">🔄 Reset</button>
+      <button class="vp-btn active" id="btnModel" style="display:none">🏗️ Model</button>
+      <button class="vp-btn active" id="btnSpaces">📦 Spaces</button>
+      <button class="vp-btn active" id="btnSurfaces" style="display:none">🧱 Surfaces</button>
+      <button class="vp-btn active" id="btnAxes">📐 Axes</button>
+      <button class="vp-btn active" id="btnLabels">🏷️ Labels</button>
+    </div>
+    <div class="legend" id="legend">
+      <span class="legend-title" id="legendTitle"></span>
+      <canvas class="legend-bar" id="legendBar" width="180" height="12"></canvas>
+      <div class="legend-labels"><span id="legendMin">Low</span><span id="legendMax">High</span></div>
+    </div>
+    <div class="right-panel" id="rightPanel">
+      <h3><span id="detailTitle">📍 Space</span><button class="close-btn" id="closeRight">✕</button></h3>
+      <div class="detail-grid" id="detailGrid"></div>
+      <div class="htm-section" id="htmDetail" style="display:none">
+        <h4 id="htmDetailTitle">🔗 에너지 데이터</h4>
+        <div id="htmDetailContent"></div>
+      </div>
+    </div>
+    <div class="tooltip" id="tooltip"></div>
+    <div class="status-bar" id="statusBar">Ready</div>
+    <div class="welcome-overlay" id="welcomeOverlay">
+      <div class="welcome-card">
+        <h2>🏢 Energy 3D Viewer</h2>
+        <p>Revit MEP Space와 EnergyPlus Zone 데이터를<br>3D 히트맵으로 시각화합니다.</p>
+        <div class="step"><div class="step-num">1</div><div class="step-text"><strong>model.glb</strong>를 드롭하세요 — Revit 3D 모델</div></div>
+        <div class="step"><div class="step-num">2</div><div class="step-text"><strong>energy-spaces.json</strong>을 드롭하세요 — Space 데이터</div></div>
+        <div class="step"><div class="step-num">3</div><div class="step-text"><strong>eplustbl.htm</strong> (선택) — Zone 에너지 데이터 히트맵</div></div>
+        <p style="font-size:.72rem; color:var(--text-dim); margin-top:10px;">💡 JSON에 Analytical Surfaces가 포함되면<br>열해석 경계면(벽, 바닥, 지붕, 창문)도 표시됩니다.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+// =============================================
+// Energy 3D Viewer — 메인 애플리케이션
+// =============================================
+// 모듈화된 참조 파일 (로컬 서버 사용 시 import 가능):
+//   css/viewer.css   — 스타일시트
+//   js/config.js     — 설정, 상수, 언어 사전, 단위 변환
+//   js/parser.js     — HTM 보고서 파서
+// file:// 에서도 작동하도록 인라인 코드를 유지합니다.
+// =============================================
+
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+// =========================================================
+// [섹션 1] 전역 상태 변수
+// =========================================================
+// 앱의 핵심 데이터를 저장하는 변수들입니다.
+let spacesData = null;           // JSON에서 읽은 Space 데이터
+let htmReports = [];             // HTM 보고서 배열 (최대 2개)
+let activeReportIdx = 0;         // 현재 활성 보고서 인덱스
+let matchedData = [];            // Space ↔ Zone 매칭 결과
+let selectedSpace = null;        // 선택된 Space GUID
+let showAxes = true;             // 좌표축 표시
+let showLabels = true;           // 라벨 표시
+let spacesVisible = true;        // Space 박스 표시
+let surfacesVisible = true;      // 해석 표면 표시
+
+// ── Three.js 엔진 변수 ──
+let scene, camera, renderer, controls, raycaster, mouse;
+let spaceMeshes = [];            // Space 3D 박스 배열
+let axesHelper;                  // 좌표축 헬퍼
+let labelSprites = [];           // 라벨 스프라이트 배열
+let surfaceMeshes = [];          // 해석 표면 메시 배열
+let glbGroup = null;             // GLB 모델 그룹
+let modelCenter = null;          // 모델 중심점
+const glbLoader = new GLTFLoader();
+
+// ── 단위/언어 설정 (js/config.js 참조) ──
+let currentUnit = 'IP';          // 'IP' (미국식) 또는 'SI' (국제표준)
+let currentLang = 'ko';          // 'ko' (한국어) 또는 'en' (영어)
+
+// ── SI ↔ IP 단위 변환 상수 (js/config.js 참조) ──
+const CONV = {
+  ft2_m2: 0.092903, m2_ft2: 10.7639,
+  ft3_m3: 0.028317, m3_ft3: 35.3147,
+  ft_m: 0.3048, m_ft: 3.28084,
+  btu_kJ: 1.05506, btu_Wh: 0.293071,
+  btuh_W: 0.293071, W_btuh: 3.41214,
+  btuhft2_Wm2: 3.15459, Wm2_btuhft2: 0.316998,
+  cfm_Ls: 0.4719, Ls_cfm: 2.11888,
+  F_C: f => (f - 32) * 5 / 9,
+  C_F: c => c * 9 / 5 + 32,
+};
+
+// ── 범용 단위 포매터 (js/config.js 참조) ──
+function U(val, type) {
+  if (val == null || isNaN(val)) return '—';
+  const si = currentUnit === 'SI';
+  switch (type) {
+    case 'area_ft2':    return si ? (val*CONV.ft2_m2).toFixed(1)+' m²' : val.toLocaleString(undefined,{maximumFractionDigits:1})+' ft²';
+    case 'vol_ft3':     return si ? (val*CONV.ft3_m3).toFixed(1)+' m³' : val.toLocaleString(undefined,{maximumFractionDigits:1})+' ft³';
+    case 'len_ft':      return si ? (val*CONV.ft_m).toFixed(2)+' m' : val.toFixed(2)+' ft';
+    case 'area_m2':     return si ? val.toFixed(1)+' m²' : (val*CONV.m2_ft2).toFixed(1)+' ft²';
+    case 'vol_m3':      return si ? val.toFixed(1)+' m³' : (val*CONV.m3_ft3).toFixed(1)+' ft³';
+    case 'energy_btu':  return si ? (val*CONV.btu_Wh/1e3).toFixed(2)+' kWh' : val.toLocaleString(undefined,{maximumFractionDigits:0})+' Btu';
+    case 'energy_kbtu': return si ? (val*CONV.btu_Wh).toFixed(1)+' kWh' : val.toFixed(1)+' kBtu';
+    case 'energy_mbtu': return si ? (val*CONV.btu_Wh/1e3).toFixed(2)+' MWh' : val.toFixed(2)+' MBtu';
+    case 'load_btuh':   return si ? (val*CONV.btuh_W).toFixed(0)+' W' : val.toFixed(0)+' Btu/h';
+    case 'load_kbtuh':  return si ? (val*CONV.btuh_W).toFixed(1)+' kW' : val.toFixed(1)+' kBtu/h';
+    case 'density_btuhft2': return si ? (val*CONV.btuhft2_Wm2).toFixed(2)+' W/m²' : val.toFixed(2)+' Btu/h·ft²';
+    case 'cfm':         return si ? (val*CONV.cfm_Ls).toFixed(1)+' L/s' : val.toFixed(0)+' CFM';
+    case 'temp_F':      return si ? CONV.F_C(val).toFixed(1)+' °C' : val.toFixed(1)+' °F';
+    case 'ach': return val.toFixed(2);
+    case 'hr':  return val.toLocaleString()+' hr';
+    case 'count': return val.toFixed(0);
+    case 'pct': return val.toFixed(1)+'%';
+    default: return String(val);
+  }
+}
+function UChart(val) {
+  return currentUnit==='SI' ? (val*CONV.btu_Wh/1e3).toFixed(1)+' kWh' : (val/1e3).toFixed(1)+' kBtu';
+}
+function UChartMega(val) {
+  return currentUnit==='SI' ? (val*CONV.btu_Wh/1e6).toFixed(2)+' MWh' : (val/1e6).toFixed(2)+' MBtu';
+}
+
+// ── 언어 사전 (js/config.js 참조) ──
+const LANG = {
+ko: {
+  subtitle:'Revit Space × EnergyPlus Zone Heatmap',
+  glb_title:'1. 3D 모델 (GLB)', json_title:'2. Space 데이터 (JSON)',
+  htm_title:'3. Energy Report (HTM) — 1~2개',
+  glb_drop:'model.glb 드래그 또는 클릭', json_drop:'energy-spaces.json 드래그 또는 클릭',
+  htm_drop:'eplustbl.htm 드래그 또는 클릭 (여러 개 가능)',
+  analysis_title:'에너지 분석 요약',
+  tab_overview:'개요', tab_enduse:'에너지 사용', tab_monthly:'월별', tab_compare:'비교',
+  building_info:'건물 정보', building_name:'건물명', program:'프로그램',
+  environment:'환경', location:'위치', zone_count:'Zone 수', cond_count:'조건',
+  site_source:'사이트/소스 에너지', building_area_title:'건물 면적',
+  comfort:'쾌적 요약', airloop:'AirLoop 시스템',
+  annual_energy:'연간 에너지 사용량', fuel_energy:'연료별 에너지 사용',
+  monthly_no_data:'월별 소비 데이터가 없습니다', monthly_suffix:'월별 소비',
+  report_compare:'보고서 비교', report1:'보고서 1', report2:'보고서 2',
+  zone_compare:'Zone 비교', common_zones:'공통 Zone',
+  only_r1:'보고서1만', only_r2:'보고서2만', total_energy:'총 에너지',
+  design_load_sum:'설계 부하 합계 (공통 Zone)', cooling:'냉방', heating:'난방',
+  zone_load_top10:'Zone별 부하 비교 (상위 10)',
+  model_label:'건물 모델', model_solid:'불투명', model_transparent:'반투명',
+  model_wireframe:'와이어프레임', model_hidden:'숨기기', model_opacity:'모델 투명도',
+  color_by:'색상 기준', space_opacity:'Space 투명도', wireframe:'와이어프레임',
+  valid_only:'유효 공간만', surface_label:'해석 표면',
+  surf_colored:'타입별 색상', surf_wire:'와이어프레임', surf_hidden:'숨기기', surface_opacity:'표면 투명도',
+  color_spaceType:'Space Type', color_level:'층 (Level)', color_area:'면적', color_volume:'체적',
+  color_conditioned:'공조 여부', color_lightingDensity:'조명밀도 (HTM)', color_plugDensity:'장비밀도 (HTM)',
+  color_totalLoad:'총부하 (HTM)', color_coolingLoad:'냉방부하 (HTM)', color_heatingLoad:'난방부하 (HTM)',
+  display_mode:'표시 모드',
+  space_info:'공간 정보', zone_area:'Zone 면적', zone_volume:'Zone 체적',
+  ceiling_h:'천장 높이', ext_wall:'외벽 면적', window_area:'창 면적', hvac_yn:'냉난방 여부',
+  internal_gains:'내부 부하', occupancy:'재실 인원', persons:'명',
+  area_pp:'인당 면적', pp_unit:'ft²/인',
+  lighting_d:'조명 밀도', lighting_init:'조명 (Init)', equip_d:'기기 밀도', equip_init:'기기 (Init)',
+  total_load_d:'총 부하 밀도', infiltration:'침기', flow_rate:'유량',
+  design_loads:'설계 부하', cooling_design:'냉방 설계', cooling_af:'냉방 풍량',
+  cooling_peak:'냉방 피크', peak_temp:'피크 온도',
+  heating_design:'난방 설계', heating_af:'난방 풍량', heating_peak:'난방 피크',
+  compare_label:'보고서 비교', no_zone:'에 해당 Zone 없음',
+  dimensions:'치수 (가로 × 세로 × 높이)', energy_data:'에너지 데이터',
+  welcome_title:'Energy 3D Viewer',
+  welcome_desc:'Revit MEP Space와 EnergyPlus Zone 데이터를<br>3D 히트맵으로 시각화합니다.',
+  step1:'<strong>model.glb</strong>를 드롭하세요 — Revit 3D 모델',
+  step2:'<strong>energy-spaces.json</strong>을 드롭하세요 — Space 데이터',
+  step3:'<strong>eplustbl.htm</strong> (선택) — Zone 에너지 데이터 히트맵',
+  step_tip:'💡 JSON에 Analytical Surfaces가 포함되면<br>열해석 경계면(벽, 바닥, 지붕, 창문)도 표시됩니다.',
+  match_load:'파일을 로드하세요', match_done:'zones 매칭 완료',
+  match_ok:'매칭', match_fail:'매칭 실패 — 콘솔(F12)에서 Zone 이름 확인',
+  loading:'로딩 중...', parse_error:'파싱 오류', read_fail:'파일 읽기 실패',
+  reports_loaded:'개 보고서 로드됨', not_set:'미설정',
+  controls_title:'설정', spaces_title:'Space 목록',
+  props_title:'특성', props_none:'요소를 선택하세요',
+  cat_dimensions:'치수', cat_identity:'Identity Data', cat_energy_analysis:'Energy Analysis',
+  cat_analytical:'해석 속성', cat_phasing:'Phasing', cat_internal:'내부 부하',
+  cat_sizing:'설계 부하', cat_infiltration:'침기', cat_location:'공간 위치',
+  prop_name:'이름', prop_number:'번호', prop_guid:'GUID', prop_type:'유형',
+  prop_area:'면적', prop_volume:'체적', prop_height:'높이',
+  prop_width:'가로', prop_depth:'세로',
+  prop_level:'층', prop_phase:'Phase', prop_conditioned:'공조 여부',
+  prop_space_type:'Space Type', prop_occupancy:'설계 재실 인원',
+  prop_surface_type:'Surface Type', prop_adj_space:'Adjacent Space',
+  prop_vertices:'Vertices', prop_construction:'Analytic Construction',
+  prop_originating:'Originating Element', prop_azimuth:'Azimuth', prop_tilt:'Tilt',
+  prop_bbox_min:'BBox Min', prop_bbox_max:'BBox Max',
+  prop_zone_match:'Zone Match Key', prop_htm_zone:'HTM Zone',
+  months:['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'],
+  months_short:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+},
+en: {
+  subtitle:'Revit Space × EnergyPlus Zone Heatmap',
+  glb_title:'1. 3D Model (GLB)', json_title:'2. Space Data (JSON)',
+  htm_title:'3. Energy Report (HTM) — 1-2 files',
+  glb_drop:'Drag or click model.glb', json_drop:'Drag or click energy-spaces.json',
+  htm_drop:'Drag or click eplustbl.htm (multiple)',
+  analysis_title:'Energy Analysis Summary',
+  tab_overview:'Overview', tab_enduse:'End Use', tab_monthly:'Monthly', tab_compare:'Compare',
+  building_info:'Building Info', building_name:'Building', program:'Program',
+  environment:'Environment', location:'Location', zone_count:'Zones', cond_count:'Cond.',
+  site_source:'Site/Source Energy', building_area_title:'Building Area',
+  comfort:'Comfort Summary', airloop:'AirLoop System',
+  annual_energy:'Annual Energy Use', fuel_energy:'Energy Use by Fuel',
+  monthly_no_data:'No monthly data available', monthly_suffix:'Monthly Consumption',
+  report_compare:'Report Comparison', report1:'Report 1', report2:'Report 2',
+  zone_compare:'Zone Comparison', common_zones:'Common Zones',
+  only_r1:'Report 1 only', only_r2:'Report 2 only', total_energy:'Total Energy',
+  design_load_sum:'Total Design Loads (Common Zones)', cooling:'Cooling', heating:'Heating',
+  zone_load_top10:'Zone Load Comparison (Top 10)',
+  model_label:'Building Model', model_solid:'Solid', model_transparent:'Transparent',
+  model_wireframe:'Wireframe', model_hidden:'Hidden', model_opacity:'Model Opacity',
+  color_by:'Color By', space_opacity:'Space Opacity', wireframe:'Wireframe',
+  valid_only:'Valid Spaces Only', surface_label:'Analysis Surface',
+  surf_colored:'Colored by Type', surf_wire:'Wireframe', surf_hidden:'Hidden', surface_opacity:'Surface Opacity',
+  color_spaceType:'Space Type', color_level:'Level', color_area:'Area', color_volume:'Volume',
+  color_conditioned:'Conditioned', color_lightingDensity:'Lighting (HTM)', color_plugDensity:'Equipment (HTM)',
+  color_totalLoad:'Total Load (HTM)', color_coolingLoad:'Cooling (HTM)', color_heatingLoad:'Heating (HTM)',
+  display_mode:'Display Mode',
+  space_info:'Space Info', zone_area:'Zone Area', zone_volume:'Zone Volume',
+  ceiling_h:'Ceiling Height', ext_wall:'Ext. Wall Area', window_area:'Window Area', hvac_yn:'HVAC',
+  internal_gains:'Internal Gains', occupancy:'Occupants', persons:'',
+  area_pp:'Area/Person', pp_unit:'ft²/person',
+  lighting_d:'Lighting Density', lighting_init:'Lighting (Init)', equip_d:'Equipment Density', equip_init:'Equipment (Init)',
+  total_load_d:'Total Load Density', infiltration:'Infiltration', flow_rate:'Flow Rate',
+  design_loads:'Design Loads', cooling_design:'Cooling Design', cooling_af:'Cooling Airflow',
+  cooling_peak:'Cooling Peak', peak_temp:'Peak Temp',
+  heating_design:'Heating Design', heating_af:'Heating Airflow', heating_peak:'Heating Peak',
+  compare_label:'Report Comparison', no_zone:' — Zone not found',
+  dimensions:'Dimensions (W × D × H)', energy_data:'Energy Data',
+  welcome_title:'Energy 3D Viewer',
+  welcome_desc:'Visualize Revit MEP Space and EnergyPlus Zone data<br>as 3D heatmaps.',
+  step1:'Drop <strong>model.glb</strong> — Revit 3D model',
+  step2:'Drop <strong>energy-spaces.json</strong> — Space data',
+  step3:'<strong>eplustbl.htm</strong> (optional) — Zone energy heatmap',
+  step_tip:'💡 If JSON includes Analytical Surfaces,<br>thermal boundaries are also shown.',
+  match_load:'Load files to begin', match_done:'zones matched',
+  match_ok:'matched', match_fail:'Match failed — check zone names in console (F12)',
+  loading:'Loading...', parse_error:'Parse error', read_fail:'File read failed',
+  reports_loaded:'report(s) loaded', not_set:'Not set',
+  controls_title:'Settings', spaces_title:'Space List',
+  props_title:'Properties', props_none:'Select an element',
+  cat_dimensions:'Dimensions', cat_identity:'Identity Data', cat_energy_analysis:'Energy Analysis',
+  cat_analytical:'Analytical Properties', cat_phasing:'Phasing', cat_internal:'Internal Gains',
+  cat_sizing:'Design Loads', cat_infiltration:'Infiltration', cat_location:'Spatial Location',
+  prop_name:'Name', prop_number:'Number', prop_guid:'GUID', prop_type:'Type',
+  prop_area:'Area', prop_volume:'Volume', prop_height:'Height',
+  prop_width:'Width', prop_depth:'Depth',
+  prop_level:'Level', prop_phase:'Phase', prop_conditioned:'Conditioned',
+  prop_space_type:'Space Type', prop_occupancy:'Design Occupancy',
+  prop_surface_type:'Surface Type', prop_adj_space:'Adjacent Space',
+  prop_vertices:'Vertices', prop_construction:'Analytic Construction',
+  prop_originating:'Originating Element', prop_azimuth:'Azimuth', prop_tilt:'Tilt',
+  prop_bbox_min:'BBox Min', prop_bbox_max:'BBox Max',
+  prop_zone_match:'Zone Match Key', prop_htm_zone:'HTM Zone',
+  months:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+  months_short:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+}
+};
+function L(key) { return LANG[currentLang]?.[key] ?? key; }
+
+// ── 해석 표면 유형별 색상 (js/config.js 참조) ──
+const SURFACE_TYPE_COLORS = {
+  ExteriorWall:0x2563eb, InteriorWall:0x7c3aed, Roof:0xef4444,
+  InteriorFloor:0x64748b, ExteriorFloor:0x78716c, UndergroundWall:0x92400e,
+  UndergroundCeiling:0x78350f, Window:0x06b6d4, Door:0xf59e0b,
+  GlassDoor:0x22d3ee, Skylight:0x38bdf8, Shade:0x84cc16, Air:0xd4d4d8,
+};
+const CAT_COLORS = ['#ef4444','#f59e0b','#10b981','#3b82f6','#8b5cf6','#ec4899','#14b8a6','#6366f1','#a855f7','#06b6d4'];
+
+// ── 유틸리티 함수 ──
+const status = msg => { document.getElementById('statusBar').textContent = msg; console.log('[Viewer]', msg); };
+function getActiveHTM() { return htmReports[activeReportIdx] || null; }
+
+// ── 치수 포매터 (js/config.js 참조) ──
+const FT_TO_MM = 304.8;
+const M2_TO_FT2 = 10.7639; const M3_TO_FT3 = 35.3147;
+function getUnit() { return currentUnit === 'SI' ? 'mm' : 'ft'; }
+function fmtLen(ft) {
+  if (currentUnit === 'SI') { const m = ft * 0.3048; return m >= 1 ? m.toFixed(2)+' m' : (ft*FT_TO_MM).toFixed(0)+' mm'; }
+  return ft.toFixed(2)+' ft';
+}
+function fmtArea(m2) { return currentUnit === 'SI' ? m2.toFixed(1)+' m²' : (m2*M2_TO_FT2).toFixed(1)+' ft²'; }
+function fmtVol(m3) { return currentUnit === 'SI' ? m3.toFixed(1)+' m³' : (m3*M3_TO_FT3).toFixed(1)+' ft³'; }
+
+// =========================================================
+// [섹션 2] Three.js 3D 엔진 초기화
+// 장면, 카메라, 렌더러, 조명, 그리드, 좌표축을 설정합니다.
+// =========================================================
+(function init() {
+  const canvas = document.getElementById('canvas3d');
+  const vp = document.getElementById('viewport');
+
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f172a);
+
+  camera = new THREE.PerspectiveCamera(50, vp.clientWidth / vp.clientHeight, 0.1, 2000);
+  camera.position.set(30, 20, 40);
+
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setSize(vp.clientWidth, vp.clientHeight);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+  controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(15, 30, 20);
+  scene.add(dir);
+
+  const grid = new THREE.GridHelper(80, 80, 0x334155, 0x1e293b);
+  scene.add(grid);
+
+  axesHelper = new THREE.AxesHelper(10);
+  scene.add(axesHelper);
+
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
+
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('click', onMouseClick);
+  window.addEventListener('resize', () => {
+    camera.aspect = vp.clientWidth / vp.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(vp.clientWidth, vp.clientHeight);
+  });
+
+  (function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+  })();
+
+  status('Three.js initialized — drop files to begin');
+})();
+
+// =========================================================
+// [섹션 3] 파일 드래그/클릭 설정
+// GLB, JSON, HTM 파일을 드래그하거나 클릭해서 로드합니다.
+// =========================================================
+function setupDrop(boxId, inputId, handler) {
+  const box = document.getElementById(boxId);
+  const input = document.getElementById(inputId);
+
+  box.addEventListener('click', () => input.click());
+  box.addEventListener('dragenter', e => { e.preventDefault(); box.classList.add('drag-over'); });
+  box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('drag-over'); });
+  box.addEventListener('dragleave', e => { e.preventDefault(); box.classList.remove('drag-over'); });
+  box.addEventListener('drop', e => {
+    e.preventDefault(); box.classList.remove('drag-over');
+    const f = e.dataTransfer.files[0];
+    if (f) handler(f, box);
+  });
+  input.addEventListener('change', () => {
+    if (input.files[0]) handler(input.files[0], box);
+    input.value = ''; // allow re-select same file
+  });
+}
+
+// =========================================================
+// [섹션 4] GLB 3D 모델 로드
+// Revit에서 내보낸 GLB 파일을 Three.js 장면에 추가합니다.
+// =========================================================
+function handleGLB(file, box) {
+  status(`Loading GLB: ${file.name} (${(file.size/1024/1024).toFixed(1)} MB)...`);
+  box.innerHTML = `<div class="icon">⏳</div><div class="label">${L('loading')} ${file.name}</div>`;
+
+  const reader = new FileReader();
+  reader.onerror = () => { box.innerHTML = `<div class="icon">❌</div><div class="label">${L('read_fail')}</div>`; box.classList.add('error'); };
+  reader.onload = e => {
+    glbLoader.parse(e.target.result, '', gltf => {
+      if (glbGroup) scene.remove(glbGroup);
+      glbGroup = gltf.scene;
+
+      // Revit Z-up → Three.js Y-up: rotate -90° around X
+      glbGroup.rotation.x = -Math.PI / 2;
+      glbGroup.updateMatrixWorld(true);
+
+      const bbox = new THREE.Box3().setFromObject(glbGroup);
+      modelCenter = bbox.getCenter(new THREE.Vector3());
+      const size = bbox.getSize(new THREE.Vector3());
+      glbGroup.position.sub(modelCenter);
+
+      let meshCount = 0;
+      glbGroup.traverse(c => {
+        if (c.isMesh) {
+          meshCount++;
+          const mats = Array.isArray(c.material) ? c.material : [c.material];
+          mats.forEach(m => {
+            m.transparent = true; m.opacity = 0.25; m.depthWrite = false; m.side = THREE.DoubleSide;
+          });
+        }
+      });
+      scene.add(glbGroup);
+
+      // Camera fit
+      const maxDim = Math.max(size.x, size.y, size.z);
+      controls.target.set(0, size.y * 0.3, 0);
+      camera.position.set(maxDim * 0.7, maxDim * 0.5, maxDim * 0.9);
+      controls.update();
+
+      // UI
+      box.classList.add('loaded');
+      box.innerHTML = `<div class="icon">✅</div><div class="filename">${file.name}</div><div class="label">${meshCount} meshes · ${(file.size/1024/1024).toFixed(1)} MB</div>`;
+      document.getElementById('welcomeOverlay').style.display = 'none';
+      document.getElementById('controlsSection').style.display = 'block';
+      document.getElementById('modelControls').style.display = 'flex';
+      document.getElementById('modelOpacityRow').style.display = 'flex';
+      document.getElementById('btnModel').style.display = 'flex';
+      status(`GLB loaded: ${meshCount} meshes`);
+
+      if (spacesData) buildSpaces();
+    }, err => {
+      console.error('GLB parse error:', err);
+      box.classList.add('error');
+      box.innerHTML = `<div class="icon">❌</div><div class="label">GLB ${L('parse_error')}</div>`;
+      status('GLB parse error: ' + (err.message || err));
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// =========================================================
+// [섹션 5] JSON Space 데이터 로드
+// Revit MEP Space 정보와 해석 표면 데이터를 읽습니다.
+// =========================================================
+function handleJSON(file, box) {
+  status(`Loading JSON: ${file.name}...`);
+  const reader = new FileReader();
+  reader.onerror = () => { box.innerHTML = `<div class="icon">❌</div><div class="label">${L('read_fail')}</div>`; box.classList.add('error'); };
+  reader.onload = e => {
+    try {
+      spacesData = JSON.parse(e.target.result);
+      // 좌표 단위 기록 (getUnitScale에서 참조)
+      const surfCount = spacesData.analyticalSurfaces ? spacesData.analyticalSurfaces.length : 0;
+      const unitLabel = spacesData.units === 'feet' ? 'ft' : 'm→ft';
+      box.classList.add('loaded');
+      box.innerHTML = `<div class="icon">✅</div><div class="filename">${file.name}</div><div class="label">${spacesData.spaceCount} spaces${surfCount ? ' · '+surfCount+' surfaces' : ''} (${unitLabel})</div>`;
+      document.getElementById('welcomeOverlay').style.display = 'none';
+      document.getElementById('controlsSection').style.display = 'block';
+      status(`JSON loaded: ${spacesData.spaceCount} spaces, ${surfCount} analytical surfaces (units: ${spacesData.units || 'meters'})`);
+      buildSpaces();
+      if (getActiveHTM()) matchZones();
+    } catch(err) {
+      box.classList.add('error');
+      box.innerHTML = `<div class="icon">❌</div><div class="label">JSON ${L('parse_error')}</div>`;
+      status('JSON error: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// =========================================================
+// [섹션 5.5] HTM 파서 함수 (js/parser.js 참조)
+// EnergyPlus eplustbl.htm에서 에너지 데이터를 추출하는 순수 함수들
+// =========================================================
+function parseNumber(str) {
+  if (!str) return 0;
+  const clean = str.replace(/,/g, '').trim();
+  if (clean === '' || clean === '-' || clean === '\u2014') return 0;
+  const num = parseFloat(clean);
+  return isNaN(num) ? 0 : num;
+}
+const pn = parseNumber;
+
+function findTableByComment(htmlText, doc, commentSubstr) {
+  const allComments = htmlText.match(/<!-- FullName:[^>]+-->/g) || [];
+  let pos = -1;
+  for (const comment of allComments) {
+    if (comment.includes(commentSubstr)) { pos = htmlText.indexOf(comment); break; }
+  }
+  if (pos === -1) return null;
+  const after = htmlText.substring(pos);
+  const ts = after.indexOf('<table'); if (ts === -1) return null;
+  const te = after.indexOf('</table>', ts); if (te === -1) return null;
+  return new DOMParser().parseFromString(after.substring(ts, te + 8), 'text/html').querySelector('table');
+}
+
+function findAllTablesByComment(htmlText, doc, pattern) {
+  const results = [];
+  const allComments = htmlText.match(/<!-- FullName:[^>]+-->/g) || [];
+  for (const comment of allComments) {
+    if (!comment.includes(pattern)) continue;
+    const pos = htmlText.indexOf(comment);
+    const after = htmlText.substring(pos);
+    const ts = after.indexOf('<table'); if (ts === -1) continue;
+    const te = after.indexOf('</table>', ts); if (te === -1) continue;
+    const table = new DOMParser().parseFromString(after.substring(ts, te + 8), 'text/html').querySelector('table');
+    const nameMatch = comment.match(/FullName:([^_]+)_([^_]+)_/);
+    results.push({ table, systemName: nameMatch ? nameMatch[2] : 'Unknown', comment });
+  }
+  return results;
+}
+
+function parseGenericInitTable(htmlText, doc, commentKey) {
+  const table = findTableByComment(htmlText, doc, commentKey);
+  if (!table) return [];
+  const rows = table.querySelectorAll('tr');
+  const headers = [];
+  if (rows[0]) rows[0].querySelectorAll('td').forEach(td => headers.push(td.textContent.trim()));
+  const data = [];
+  for (let i = 1; i < rows.length; i++) {
+    const cells = rows[i].querySelectorAll('td');
+    const obj = {};
+    for (let j = 0; j < cells.length && j < headers.length; j++) obj[headers[j] || 'idx'] = cells[j].textContent.trim();
+    data.push(obj);
+  }
+  return data;
+}
+
+function parseHTM(htmlText, fileName) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(htmlText, 'text/html');
+  const report = {
+    fileName, metadata: {}, annualEndUse: {}, annualFuelUse: {},
+    monthlyConsumption: {}, monthlyPeakDemand: {}, endUseByFuel: {},
+    buildingArea: {}, zoneSummary: [], comfortSummary: {},
+    windowWallRatio: {}, siteSourceEnergy: {},
+    airLoopLoadSummary: {},
+    initSummary: { version:null, timestepsPerHour:null, location:{}, buildingInfo:{}, zoneSizing:[], systemSizing:[], componentSizing:[] },
+    warmupConvergence: { allPassed:true, zones:[] },
+    zoneDetail: [],
+  };
+  const pm = htmlText.match(/Program Version:<b>([^<]+)<\/b>/); if(pm) report.metadata.program=pm[1].trim();
+  const bm = htmlText.match(/Building: <b>([^<]+)<\/b>/); if(bm) report.metadata.building=bm[1].trim();
+  const em = htmlText.match(/Environment: <b>([^<]+)<\/b>/); if(em) report.metadata.environment=em[1].trim();
+  const tm = htmlText.match(/Simulation Timestamp: <b>([\s\S]*?)<\/b>/); if(tm) report.metadata.simTimestamp=tm[1].replace(/\s+/g,' ').trim();
+  const hm = htmlText.match(/Values gathered over\s+([\d.]+)\s+hours/); if(hm) report.metadata.simHours=parseFloat(hm[1]);
+  const buttons = doc.querySelectorAll('button[data-toggle="collapse"]');
+  buttons.forEach(btn => {
+    const title = btn.textContent.trim().replace(/\s+/g, ' ');
+    const targetId = btn.getAttribute('data-target');
+    if (!targetId) return;
+    const tableDiv = doc.querySelector(targetId);
+    if (!tableDiv) return;
+    const table = tableDiv.querySelector('table');
+    if (!table) return;
+    if (title.includes('End Use - view table')) {
+      const rows = table.querySelectorAll('tr');
+      rows.forEach((row, i) => { if(i===0) return; const c=row.querySelectorAll('td');
+        if(c.length>=2) { const n=c[0].textContent.trim(); report.annualEndUse[n]=pn(c[1].textContent); }
+      });
+    } else if (title.includes('Energy Use - view table')) {
+      const rows = table.querySelectorAll('tr');
+      rows.forEach((row, i) => { if(i===0) return; const c=row.querySelectorAll('td');
+        if(c.length>=2) { report.annualFuelUse[c[0].textContent.trim()]=pn(c[1].textContent); }
+      });
+    } else if (title.includes('Consumption') && title.includes('view table')) {
+      const fuel = title.includes('Electricity')?'Electricity':title.includes('Natural Gas')?'Natural Gas':title.includes('District Cooling')?'District Cooling':title.includes('District Heating')?'District Heating':title.split('(')[0].trim();
+      const result = {};
+      table.querySelectorAll('tr').forEach((row, i) => { if(i===0) return; const c=row.querySelectorAll('td');
+        if(c.length>=13) { const eu=c[0].textContent.trim(); const m=[]; for(let j=1;j<=12;j++) m.push(pn(c[j].textContent)); result[eu]={monthly:m, total:c.length>13?pn(c[13].textContent):null}; }
+      });
+      report.monthlyConsumption[fuel] = result;
+    } else if (title.includes('Peak Demand') && title.includes('view table')) {
+      const fuel = title.includes('Electricity')?'Electricity':title.includes('Natural Gas')?'Natural Gas':title.split('(')[0].trim();
+      const result = {};
+      table.querySelectorAll('tr').forEach((row, i) => { if(i===0) return; const c=row.querySelectorAll('td');
+        if(c.length>=13) { const eu=c[0].textContent.trim(); const m=[]; for(let j=1;j<=12;j++) m.push(pn(c[j].textContent)); result[eu]={monthly:m, total:c.length>13?pn(c[13].textContent):null}; }
+      });
+      report.monthlyPeakDemand[fuel] = result;
+    }
+  });
+  const sseT = findTableByComment(htmlText, doc, 'Site and Source Energy');
+  if (sseT) sseT.querySelectorAll('tr').forEach((row,i) => { if(i===0) return; const c=row.querySelectorAll('td');
+    if(c.length>=4) report.siteSourceEnergy[c[0].textContent.trim()]={totalEnergy:pn(c[1].textContent),perTotalArea:pn(c[2].textContent),perCondArea:pn(c[3].textContent)};
+  });
+  const baT = findTableByComment(htmlText, doc, 'Building Area');
+  if (baT) baT.querySelectorAll('tr').forEach((row,i) => { if(i===0) return; const c=row.querySelectorAll('td');
+    if(c.length>=2) report.buildingArea[c[0].textContent.trim()]=pn(c[1].textContent);
+  });
+  const euT = findTableByComment(htmlText, doc, 'Entire Facility_End Uses');
+  if (euT) { const hdr=[]; const hr=euT.querySelector('tr'); if(hr) hr.querySelectorAll('td').forEach(td=>hdr.push(td.textContent.trim()));
+    euT.querySelectorAll('tr').forEach((row,i) => { if(i===0) return; const c=row.querySelectorAll('td');
+      if(c.length>=2) { const eu=c[0].textContent.trim().replace(/\u00a0/g,''); if(!eu) return; const fd={};
+        for(let j=1;j<c.length&&j<hdr.length;j++) fd[hdr[j].replace(/\[.*\]/,'').trim()]=pn(c[j].textContent);
+        report.endUseByFuel[eu]=fd; }
+    });
+  }
+  const zsT = findTableByComment(htmlText, doc, 'Entire Facility_Zone Summary');
+  if (zsT) { const hdr=[]; const hr=zsT.querySelector('tr'); if(hr) hr.querySelectorAll('td').forEach(td=>hdr.push(td.textContent.trim()));
+    zsT.querySelectorAll('tr').forEach((row,i) => { if(i===0) return; const c=row.querySelectorAll('td');
+      if(c.length>=2) { const z={}; for(let j=0;j<c.length&&j<hdr.length;j++) z[hdr[j]||'Zone']=c[j].textContent.trim(); report.zoneSummary.push(z); }
+    });
+  }
+  const cmfT = findTableByComment(htmlText, doc, 'Comfort and Setpoint Not Met Summary');
+  if (cmfT) cmfT.querySelectorAll('tr').forEach((row,i) => { if(i===0) return; const c=row.querySelectorAll('td');
+    if(c.length>=2) report.comfortSummary[c[0].textContent.trim()]=pn(c[1].textContent);
+  });
+  const sysNames = new Set();
+  findAllTablesByComment(htmlText, doc, 'AirLoop Component Load Summary').forEach(r => sysNames.add(r.systemName));
+  for (const sn of sysNames) {
+    const sys = { cooling:{}, heating:{} };
+    const parseLoadComp = t => { const comps=[]; t.querySelectorAll('tr').forEach((row,i) => { if(i===0) return; const c=row.querySelectorAll('td');
+      if(c.length>=7) comps.push({name:c[0].textContent.trim(),sensibleInstant:pn(c[1]?.textContent),sensibleDelayed:pn(c[2]?.textContent),latent:pn(c[4]?.textContent),total:pn(c[5]?.textContent),pctGrandTotal:pn(c[6]?.textContent)});
+    }); return comps; };
+    const parsePeakCond = t => { const cond={}; t.querySelectorAll('tr').forEach((row,i) => { if(i===0) return; const c=row.querySelectorAll('td');
+      if(c.length>=2) { const k=c[0].textContent.trim(), v=c[1].textContent.trim(); cond[k]=isNaN(parseFloat(v))?v:pn(v); }
+    }); return cond; };
+    let t;
+    t=findTableByComment(htmlText,doc,'AirLoop Component Load Summary_'+sn+'_Estimated Cooling Peak Load Components'); if(t) sys.cooling.components=parseLoadComp(t);
+    t=findTableByComment(htmlText,doc,'AirLoop Component Load Summary_'+sn+'_Cooling Peak Conditions'); if(t) sys.cooling.peakConditions=parsePeakCond(t);
+    t=findTableByComment(htmlText,doc,'AirLoop Component Load Summary_'+sn+'_Estimated Heating Peak Load Components'); if(t) sys.heating.components=parseLoadComp(t);
+    t=findTableByComment(htmlText,doc,'AirLoop Component Load Summary_'+sn+'_Heating Peak Conditions'); if(t) sys.heating.peakConditions=parsePeakCond(t);
+    report.airLoopLoadSummary[sn] = sys;
+  }
+  let t;
+  t=findTableByComment(htmlText,doc,'Initialization Summary_Entire Facility_Version');
+  if(t) { const c=t.querySelectorAll('tr:nth-child(2) td'); if(c.length>=2) report.initSummary.version=c[1].textContent.trim(); }
+  t=findTableByComment(htmlText,doc,'Initialization Summary_Entire Facility_Site:Location');
+  if(t) { const c=t.querySelectorAll('tr:nth-child(2) td');
+    if(c.length>=6) report.initSummary.location={name:c[1].textContent.trim(),latitude:pn(c[2].textContent),longitude:pn(c[3].textContent),elevation:pn(c[5]?.textContent)};
+  }
+  t=findTableByComment(htmlText,doc,'Initialization Summary_Entire Facility_Zone Sizing Information');
+  if(t) { const rows=t.querySelectorAll('tr');
+    for(let i=1;i<rows.length;i++) { const c=rows[i].querySelectorAll('td');
+      if(c.length>=13) report.initSummary.zoneSizing.push({
+        zoneName:c[1].textContent.trim(), loadType:c[2].textContent.trim(),
+        calcDesLoad:pn(c[3].textContent), userDesLoad:pn(c[4].textContent),
+        calcDesAirFlow:pn(c[5].textContent), userDesAirFlow:pn(c[6].textContent),
+        designDayName:c[7].textContent.trim(), dateTimeOfPeak:c[8].textContent.trim(),
+        tempAtPeak:pn(c[9].textContent), floorArea:pn(c[11]?.textContent),
+      });
+    }
+  }
+  t=findTableByComment(htmlText,doc,'Initialization Summary_Entire Facility_System Sizing Information');
+  if(t) { const rows=t.querySelectorAll('tr');
+    for(let i=1;i<rows.length;i++) { const c=rows[i].querySelectorAll('td');
+      if(c.length>=9) report.initSummary.systemSizing.push({
+        systemName:c[1].textContent.trim(), loadType:c[2].textContent.trim(),
+        userDesCapacity:pn(c[4].textContent), calcDesAirFlow:pn(c[5].textContent),
+        userDesAirFlow:pn(c[6].textContent),
+      });
+    }
+  }
+  const _zi = parseGenericInitTable(htmlText,doc,'Initialization Summary_Entire Facility_Zone Information');
+  const _ig = parseGenericInitTable(htmlText,doc,'Initialization Summary_Entire Facility_Zone Internal Gains Nominal');
+  const _pp = parseGenericInitTable(htmlText,doc,'Initialization Summary_Entire Facility_People Internal Gains Nominal');
+  const _lt = parseGenericInitTable(htmlText,doc,'Initialization Summary_Entire Facility_Lights Internal Gains Nominal');
+  const _eq = parseGenericInitTable(htmlText,doc,'Initialization Summary_Entire Facility_ElectricEquipment Internal Gains Nominal');
+  const _inf = parseGenericInitTable(htmlText,doc,'Initialization Summary_Entire Facility_ZoneInfiltration Airflow Stats Nominal');
+  const zm = {}; const skip = new Set(['Total','Conditioned Total','Unconditioned Total','Not Part of Total']);
+  report.zoneSummary.forEach(z => {
+    const n = z['']||z['Zone']||Object.values(z)[0]; if(!n||skip.has(n)) return;
+    zm[n] = { name:n, area:pn(z['Area [ft2]']), conditioned:z['Conditioned (Y/N)'],
+      partOfTotal:z['Part of Total Floor Area (Y/N)'],
+      volume:pn(z['Volume [ft3]']), multipliers:pn(z['Multipliers']),
+      grossWallArea:pn(z['Above Ground Gross Wall Area [ft2]']), windowArea:pn(z['Window Glass Area [ft2]']),
+      lightingDensity:pn(z['Lighting [Btu/h-ft2]']), areaPerPerson:pn(z['People [ft2 per person]']),
+      plugDensity:pn(z['Plug and Process [Btu/h-ft2]']),
+      ceilingHeight:0, people:{}, lights:{}, equipment:{}, infiltration:{},
+      sizing:{cooling:null,heating:null}, totalLoadDensity:0 };
+  });
+  _zi.forEach(r => { const n=r['Zone Name']; if(!n||!zm[n]) return;
+    zm[n].ceilingHeight=pn(r['Ceiling Height {ft}']); zm[n].volume=pn(r['Volume {ft3}'])||zm[n].volume; });
+  _ig.forEach(r => { const n=r['Zone Name']; if(!n||!zm[n]) return;
+    zm[n].people.count=pn(r['# Occupants']); zm[n].people.areaPerPerson=pn(r['Area per Occupant {ft2/person}']);
+    zm[n].lightingDensity=pn(r['Interior Lighting {Btu/h-ft2}'])||zm[n].lightingDensity;
+    zm[n].plugDensity=pn(r['Electric Load {Btu/h-ft2}'])||zm[n].plugDensity;
+    zm[n].totalLoadDensity=pn(r['Sum Loads per Area {Btu/h-ft2}']); });
+  _pp.forEach(r => { const n=r['Zone Name']; if(!n||!zm[n]) return;
+    zm[n].people.count=pn(r['Number of People {}'])||zm[n].people.count;
+    zm[n].people.scheduleName=r['Schedule Name']; });
+  _lt.forEach(r => { const n=r['Zone Name']; if(!n||!zm[n]) return;
+    zm[n].lights.density=pn(r['Lights/Floor Area {Btu/h-ft2}']); zm[n].lights.scheduleName=r['Schedule Name']; });
+  _eq.forEach(r => { const n=r['Zone Name']; if(!n||!zm[n]) return;
+    zm[n].equipment.density=pn(r['Equipment/Floor Area {Btu/h-ft2}']); zm[n].equipment.scheduleName=r['Schedule Name']; });
+  _inf.forEach(r => { const n=r['Zone Name']; if(!n||!zm[n]) return;
+    zm[n].infiltration.flowRate=pn(r['Design Volume Flow Rate {ft3/min}']); zm[n].infiltration.ach=pn(r['ACH - Air Changes per Hour']); });
+  report.initSummary.zoneSizing.forEach(zs => { const n=zs.zoneName; if(!n||!zm[n]) return;
+    if(zs.loadType==='Cooling') zm[n].sizing.cooling={designLoad:zs.calcDesLoad,designAirFlow:zs.calcDesAirFlow,peakDate:zs.dateTimeOfPeak,peakTemp:zs.tempAtPeak};
+    else if(zs.loadType==='Heating') zm[n].sizing.heating={designLoad:zs.userDesLoad,designAirFlow:zs.userDesAirFlow,peakDate:zs.dateTimeOfPeak,peakTemp:zs.tempAtPeak};
+  });
+  report.zoneDetail = Object.values(zm);
+  return report;
+}
+
+// =========================================================
+// [섹션 6] HTM 에너지 보고서 로드
+// =========================================================
+function handleHTM(file, box) {
+  status(`Loading HTM: ${file.name}...`);
+  const reader = new FileReader();
+  reader.onerror = () => { status('HTM file read error'); };
+  reader.onload = e => {
+    try {
+      const report = parseHTM(e.target.result, file.name);
+      // Max 2 reports
+      if (htmReports.length >= 2) htmReports.shift(); // remove oldest
+      htmReports.push(report);
+      activeReportIdx = htmReports.length - 1;
+
+      box.classList.add('loaded');
+      box.innerHTML = `<div class="icon">✅</div><div class="label">${htmReports.length} ${L('reports_loaded')}</div>`;
+      renderHTMChips();
+      enableHTMMetrics();
+      status(`HTM loaded: ${report.zoneDetail.length} zones (${htmReports.length} report(s))`);
+      if (spacesData) matchZones();
+      renderAnalysisSummary();
+
+      // Auto-collapse HTM section and expand analysis section
+      autoCollapseHTMExpandAnalysis();
+    } catch(err) {
+      box.classList.add('error');
+      box.innerHTML = `<div class="icon">❌</div><div class="label">HTM ${L('parse_error')}</div>`;
+      status('HTM error: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+}
+
+// Handle multiple file drops for HTM
+function handleHTMMulti(files, box) {
+  for (const f of files) handleHTM(f, box);
+}
+
+function autoCollapseHTMExpandAnalysis() {
+  // Collapse the HTM section
+  const htmSection = document.getElementById('sectionHTM');
+  if (htmSection) {
+    const htmHeader = htmSection.querySelector('.panel-header');
+    const htmBody = htmSection.querySelector('.panel-body');
+    if (htmHeader && htmBody && !htmHeader.classList.contains('collapsed')) {
+      htmHeader.classList.add('collapsed');
+      htmBody.classList.add('collapsed');
+    }
+  }
+
+  // Expand the analysis section and ensure charts render properly
+  const analysisSection = document.getElementById('analysisSection');
+  if (analysisSection) {
+    const analysisHeader = analysisSection.querySelector('.panel-header');
+    const analysisBody = analysisSection.querySelector('.panel-body');
+    if (analysisHeader && analysisBody) {
+      // Make sure it's expanded
+      analysisHeader.classList.remove('collapsed');
+      analysisBody.classList.remove('collapsed');
+      // Force recalculate max-height after content is rendered
+      requestAnimationFrame(() => {
+        analysisBody.style.maxHeight = analysisBody.scrollHeight + 500 + 'px';
+        // Re-render charts after layout is stable to fix size issues
+        setTimeout(() => {
+          const rpt = htmReports[activeReportIdx] || htmReports[0];
+          if (rpt) {
+            if (analysisTab === 'enduse') renderEndUsePie(rpt);
+            if (analysisTab === 'monthly') renderMonthlyBar(rpt);
+          }
+          // Update max-height again after charts are rendered
+          analysisBody.style.maxHeight = analysisBody.scrollHeight + 500 + 'px';
+        }, 100);
+      });
+    }
+  }
+}
+
+function renderHTMChips() {
+  const el = document.getElementById('htmChips');
+  el.innerHTML = htmReports.map((r, i) => {
+    const active = i === activeReportIdx ? 'active' : '';
+    const name = r.fileName.length > 25 ? r.fileName.substring(0,22)+'...' : r.fileName;
+    return `<span class="htm-chip ${active}" data-idx="${i}">
+      <span>📊 ${name} (${r.zoneDetail.length}z)</span>
+      <span class="chip-x" data-remove="${i}">×</span>
+    </span>`;
+  }).join('');
+  el.querySelectorAll('.htm-chip').forEach(chip => {
+    chip.addEventListener('click', e => {
+      if (e.target.classList.contains('chip-x')) {
+        const idx = parseInt(e.target.dataset.remove);
+        htmReports.splice(idx, 1);
+        if (activeReportIdx >= htmReports.length) activeReportIdx = Math.max(0, htmReports.length-1);
+        renderHTMChips();
+        if (spacesData) matchZones();
+        renderAnalysisSummary();
+        return;
+      }
+      activeReportIdx = parseInt(chip.dataset.idx);
+      renderHTMChips();
+      if (spacesData) matchZones();
+      renderAnalysisSummary();
+    });
+  });
+}
+
+function enableHTMMetrics() {
+  const sel = document.getElementById('colorMetric');
+  for (const opt of sel.options) opt.disabled = false;
+}
+
+let analysisTab = 'overview'; // 'overview' | 'enduse' | 'monthly' | 'compare'
+let endUsePieInstance = null;
+let monthlyBarInstance = null;
+
+function renderAnalysisSummary() {
+  const section = document.getElementById('analysisSection');
+  const content = document.getElementById('analysisContent');
+  if (htmReports.length === 0) { section.classList.remove('visible'); return; }
+  section.classList.add('visible');
+
+  const rpt = htmReports[activeReportIdx] || htmReports[0];
+  const hasTwoReports = htmReports.length >= 2;
+
+  // Tab bar
+  let html = `<div class="analysis-tabs">`;
+  html += `<div class="analysis-tab ${analysisTab==='overview'?'active':''}" data-atab="overview">${L('tab_overview')}</div>`;
+  html += `<div class="analysis-tab ${analysisTab==='enduse'?'active':''}" data-atab="enduse">${L('tab_enduse')}</div>`;
+  html += `<div class="analysis-tab ${analysisTab==='monthly'?'active':''}" data-atab="monthly">${L('tab_monthly')}</div>`;
+  if (hasTwoReports) html += `<div class="analysis-tab ${analysisTab==='compare'?'active':''}" data-atab="compare">${L('tab_compare')}</div>`;
+  html += `</div>`;
+
+  if (analysisTab === 'overview') {
+    html += renderOverviewTab(rpt);
+  } else if (analysisTab === 'enduse') {
+    html += renderEndUseTab(rpt);
+  } else if (analysisTab === 'monthly') {
+    html += renderMonthlyTab(rpt);
+  } else if (analysisTab === 'compare' && hasTwoReports) {
+    html += renderCompareTab();
+  }
+
+  content.innerHTML = html;
+
+  // Tab click delegation
+  content.querySelectorAll('[data-atab]').forEach(el => {
+    el.addEventListener('click', () => {
+      analysisTab = el.dataset.atab;
+      renderAnalysisSummary();
+    });
+  });
+
+  // Render charts after DOM update
+  setTimeout(() => {
+    if (analysisTab === 'enduse') renderEndUsePie(rpt);
+    else destroyCharts();
+    if (analysisTab === 'monthly') renderMonthlyBar(rpt);
+    // Update panel body max-height so charts are visible
+    const analysisBody = section.closest('.panel-section')?.querySelector('.panel-body');
+    if (analysisBody && !analysisBody.classList.contains('collapsed')) {
+      analysisBody.style.maxHeight = analysisBody.scrollHeight + 500 + 'px';
+    }
+  }, 50);
+}
+
+function renderOverviewTab(rpt) {
+  let h = '';
+  // Building info card
+  h += `<div class="summary-card">`;
+  h += `<div class="summary-card-title">${L('building_info')}</div>`;
+  if (rpt.metadata.building) h += `<div class="compare-row"><span class="cr-label">${L('building_name')}</span><span class="cr-val">${rpt.metadata.building}</span></div>`;
+  if (rpt.metadata.program) h += `<div class="compare-row"><span class="cr-label">${L('program')}</span><span class="cr-val" style="font-size:.6rem">${rpt.metadata.program}</span></div>`;
+  if (rpt.metadata.environment) h += `<div class="compare-row"><span class="cr-label">${L('environment')}</span><span class="cr-val">${rpt.metadata.environment}</span></div>`;
+  if (rpt.initSummary?.location?.name) h += `<div class="compare-row"><span class="cr-label">${L('location')}</span><span class="cr-val">${rpt.initSummary.location.name}</span></div>`;
+  const condZones = rpt.zoneDetail.filter(z => z.conditioned === 'Yes').length;
+  h += `<div class="compare-row"><span class="cr-label">${L('zone_count')}</span><span class="cr-val">${rpt.zoneDetail.length} (${L('cond_count')}: ${condZones})</span></div>`;
+  h += `</div>`;
+
+  // Site/Source Energy KPI
+  const sse = rpt.siteSourceEnergy;
+  if (sse && Object.keys(sse).length) {
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('site_source')}</div>`;
+    Object.entries(sse).forEach(([k,v]) => {
+      h += `<div class="compare-row"><span class="cr-label">${k}</span><span class="cr-val">${U(v.totalEnergy/1e6,'energy_mbtu')}</span></div>`;
+    });
+    h += `</div>`;
+  }
+
+  // Building Area
+  const ba = rpt.buildingArea;
+  if (ba && Object.keys(ba).length) {
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('building_area_title')}</div>`;
+    Object.entries(ba).forEach(([k,v]) => {
+      h += `<div class="compare-row"><span class="cr-label">${k}</span><span class="cr-val">${U(v,'area_ft2')}</span></div>`;
+    });
+    h += `</div>`;
+  }
+
+  // Comfort Summary
+  const cmf = rpt.comfortSummary;
+  if (cmf && Object.keys(cmf).length) {
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('comfort')}</div>`;
+    Object.entries(cmf).forEach(([k,v]) => {
+      const isWarning = v > 0 && (k.includes('Not Met') || k.includes('Setpoint'));
+      h += `<div class="compare-row"><span class="cr-label">${k}</span><span class="cr-val" style="${isWarning?'color:var(--danger)':''}">${U(v,'hr')}</span></div>`;
+    });
+    h += `</div>`;
+  }
+
+  // AirLoop summary
+  const als = rpt.airLoopLoadSummary;
+  if (als && Object.keys(als).length) {
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('airloop')}</div>`;
+    Object.entries(als).forEach(([sysName, sys]) => {
+      h += `<div class="compare-row"><span class="cr-label">${sysName}</span><span class="cr-val">`;
+      if (sys.cooling?.peakConditions) {
+        const pk = sys.cooling.peakConditions;
+        const loadVal = pk['Peak Design Sensible Load']||pk['Design Peak Sensible Load']||null;
+        h += `C: ${loadVal != null ? U(parseFloat(loadVal)*CONV.W_btuh,'load_btuh') : '—'} `;
+      }
+      h += `</span></div>`;
+    });
+    h += `</div>`;
+  }
+  return h;
+}
+
+function renderEndUseTab(rpt) {
+  let h = '';
+  const EU_COLORS = { Heating:'#ef4444', Cooling:'#3b82f6', 'Interior Lighting':'#f59e0b', 'Interior Equipment':'#6b7280',
+    Fans:'#ec4899', Pumps:'#8b5cf6', 'Heat Rejection':'#14b8a6', Humidification:'#06b6d4',
+    'Heat Recovery':'#a855f7', 'Water Systems':'#0ea5e9', Refrigeration:'#84cc16', Generators:'#d946ef' };
+
+  // Annual End Use
+  const aeu = rpt.annualEndUse;
+  if (aeu && Object.keys(aeu).length) {
+    const total = Object.values(aeu).reduce((s,v) => s + (typeof v==='number'?v:0), 0);
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('annual_energy')}</div>`;
+    if (total > 0) {
+      const dispTotal = currentUnit==='SI' ? (total*CONV.btu_Wh/1e6).toFixed(2) : (total/1e6).toFixed(2);
+      const dispUnit = currentUnit==='SI' ? 'MWh' : 'MBtu';
+      h += `<div class="summary-kpi">${dispTotal} <span style="font-size:.7rem;color:var(--text-dim)">${dispUnit}</span></div>`;
+    }
+    const sorted = Object.entries(aeu).filter(([,v]) => typeof v==='number' && v > 0).sort((a,b) => b[1]-a[1]);
+    sorted.forEach(([name, val]) => {
+      const pct = total > 0 ? (val / total * 100) : 0;
+      const color = EU_COLORS[name] || '#64748b';
+      h += `<div class="eu-row">`;
+      h += `<span class="eu-label"><span class="eu-dot" style="background:${color}"></span>${name}</span>`;
+      h += `<div class="eu-bar-bg"><div class="eu-bar" style="width:${pct}%;background:${color}"></div></div>`;
+      h += `<span class="eu-val">${U(val/1e3,'energy_kbtu')} (${pct.toFixed(1)}%)</span>`;
+      h += `</div>`;
+    });
+    h += `</div>`;
+  }
+
+  // End Use By Fuel breakdown
+  const euf = rpt.endUseByFuel;
+  if (euf && Object.keys(euf).length) {
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('fuel_energy')}</div>`;
+    const fuels = new Set();
+    Object.values(euf).forEach(fd => Object.keys(fd).forEach(f => fuels.add(f)));
+    const fuelArr = [...fuels];
+    Object.entries(euf).forEach(([endUse, fuelData]) => {
+      const total = Object.values(fuelData).reduce((s,v)=>s+v, 0);
+      if (total <= 0) return;
+      h += `<div class="eu-row"><span class="eu-label">${endUse}</span>`;
+      h += `<span class="eu-val">`;
+      fuelArr.forEach(f => { if(fuelData[f] > 0) h += `${f}: ${U(fuelData[f]/1e3,'energy_kbtu')} `; });
+      h += `</span></div>`;
+    });
+    h += `</div>`;
+  }
+  return h;
+}
+
+function renderMonthlyTab(rpt) {
+  let h = '';
+  const MONTHS = L('months_short');
+  const mc = rpt.monthlyConsumption;
+  if (!mc || !Object.keys(mc).length) {
+    h += `<div class="summary-card"><div class="summary-sub">${L('monthly_no_data')}</div></div>`;
+    return h;
+  }
+
+  const fmtCell = v => {
+    if (v <= 0) return '—';
+    return currentUnit==='SI' ? (v*CONV.btu_Wh).toFixed(1) : (v/1e3).toFixed(1);
+  };
+  const colUnit = currentUnit==='SI' ? 'kWh' : 'kBtu';
+
+  Object.entries(mc).forEach(([fuel, endUses]) => {
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${fuel} ${L('monthly_suffix')}</div>`;
+    h += `<div style="overflow-x:auto;"><table style="width:100%;font-size:.6rem;border-collapse:collapse;">`;
+    h += `<tr style="color:var(--text-dim);"><td style="padding:2px 4px;">End Use</td>`;
+    MONTHS.forEach(m => { h += `<td style="padding:2px 3px;text-align:right;">${m}</td>`; });
+    h += `<td style="padding:2px 4px;text-align:right;font-weight:600;">Total (${colUnit})</td></tr>`;
+    Object.entries(endUses).forEach(([eu, data]) => {
+      if (!data.monthly || data.monthly.every(v=>v===0)) return;
+      h += `<tr><td style="padding:2px 4px;color:var(--text-dim);">${eu}</td>`;
+      data.monthly.forEach(v => { h += `<td style="padding:2px 3px;text-align:right;">${fmtCell(v)}</td>`; });
+      h += `<td style="padding:2px 4px;text-align:right;font-weight:600;">${data.total?fmtCell(data.total):'—'}</td></tr>`;
+    });
+    h += `</table></div></div>`;
+  });
+  return h;
+}
+
+function renderCompareTab() {
+  if (htmReports.length < 2) return '';
+  const r0 = htmReports[0], r1 = htmReports[1];
+  let h = '';
+
+  h += `<div class="summary-card" style="border:1px solid rgba(245,158,11,.2);background:rgba(245,158,11,.05);">`;
+  h += `<div class="summary-card-title" style="color:var(--accent);">${L('report_compare')}</div>`;
+  h += `<div class="compare-row"><span class="cr-label">${L('report1')}</span><span class="cr-val" style="font-size:.6rem">${r0.fileName}</span></div>`;
+  h += `<div class="compare-row"><span class="cr-label">${L('report2')}</span><span class="cr-val" style="font-size:.6rem">${r1.fileName}</span></div>`;
+  h += `</div>`;
+
+  h += `<div class="summary-card">`;
+  h += `<div class="summary-card-title">${L('zone_compare')}</div>`;
+  h += `<div class="compare-row"><span class="cr-label">${L('zone_count')}</span><span class="cr-val">${r0.zoneDetail.length} vs ${r1.zoneDetail.length}</span></div>`;
+  const z0set = new Set(r0.zoneDetail.map(z=>z.name));
+  const z1set = new Set(r1.zoneDetail.map(z=>z.name));
+  const common = [...z0set].filter(n => z1set.has(n));
+  const only0 = [...z0set].filter(n => !z1set.has(n));
+  const only1 = [...z1set].filter(n => !z0set.has(n));
+  h += `<div class="compare-row"><span class="cr-label">${L('common_zones')}</span><span class="cr-val">${common.length}</span></div>`;
+  if (only0.length) h += `<div class="compare-row"><span class="cr-label">${L('only_r1')}</span><span class="cr-val" style="color:var(--danger)">${only0.length}</span></div>`;
+  if (only1.length) h += `<div class="compare-row"><span class="cr-label">${L('only_r2')}</span><span class="cr-val" style="color:var(--danger)">${only1.length}</span></div>`;
+  h += `</div>`;
+
+  const totalE0 = Object.values(r0.annualEndUse).reduce((s,v)=>s+(typeof v==='number'?v:0),0);
+  const totalE1 = Object.values(r1.annualEndUse).reduce((s,v)=>s+(typeof v==='number'?v:0),0);
+  if (totalE0 > 0 || totalE1 > 0) {
+    const diff = totalE1 - totalE0;
+    const pct = totalE0 > 0 ? ((diff/totalE0)*100).toFixed(1) : '—';
+    const cls = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('total_energy')}</div>`;
+    h += `<div class="compare-row"><span class="cr-label">${L('report1')}</span><span class="cr-val">${U(totalE0/1e6,'energy_mbtu')}</span></div>`;
+    h += `<div class="compare-row"><span class="cr-label">${L('report2')}</span><span class="cr-val ${cls}">${U(totalE1/1e6,'energy_mbtu')} <span class="cr-diff">(${diff>0?'+':''}${pct}%)</span></span></div>`;
+    h += `</div>`;
+  }
+
+  if (common.length > 0) {
+    let cool0=0, cool1=0, heat0=0, heat1=0;
+    common.forEach(name => {
+      const za = r0.zoneDetail.find(z=>z.name===name);
+      const zb = r1.zoneDetail.find(z=>z.name===name);
+      if(za?.sizing?.cooling) cool0+=za.sizing.cooling.designLoad||0;
+      if(zb?.sizing?.cooling) cool1+=zb.sizing.cooling.designLoad||0;
+      if(za?.sizing?.heating) heat0+=za.sizing.heating.designLoad||0;
+      if(zb?.sizing?.heating) heat1+=zb.sizing.heating.designLoad||0;
+    });
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('design_load_sum')}</div>`;
+    if (cool0>0||cool1>0) {
+      const d=cool1-cool0; const p=cool0>0?((d/cool0)*100).toFixed(1):'—'; const c=d>0?'up':d<0?'down':'';
+      h += `<div class="compare-row"><span class="cr-label">${L('cooling')}</span><span class="cr-val ${c}">${U(cool0/1e3,'load_kbtuh')} → ${U(cool1/1e3,'load_kbtuh')} <span class="cr-diff">(${d>0?'+':''}${p}%)</span></span></div>`;
+    }
+    if (heat0>0||heat1>0) {
+      const d=heat1-heat0; const p=heat0>0?((d/heat0)*100).toFixed(1):'—'; const c=d>0?'up':d<0?'down':'';
+      h += `<div class="compare-row"><span class="cr-label">${L('heating')}</span><span class="cr-val ${c}">${U(heat0/1e3,'load_kbtuh')} → ${U(heat1/1e3,'load_kbtuh')} <span class="cr-diff">(${d>0?'+':''}${p}%)</span></span></div>`;
+    }
+    h += `</div>`;
+
+    h += `<div class="summary-card">`;
+    h += `<div class="summary-card-title">${L('zone_load_top10')}</div>`;
+    h += `<div style="overflow-x:auto;"><table style="width:100%;font-size:.6rem;border-collapse:collapse;">`;
+    const cLabel = L('cooling');
+    h += `<tr style="color:var(--text-dim);"><td style="padding:2px 4px;">Zone</td><td style="text-align:right;padding:2px 4px;">${cLabel}₁</td><td style="text-align:right;padding:2px 4px;">${cLabel}₂</td><td style="text-align:right;padding:2px 4px;">Δ%</td></tr>`;
+    const rows = common.map(name => {
+      const za=r0.zoneDetail.find(z=>z.name===name), zb=r1.zoneDetail.find(z=>z.name===name);
+      const c0=za?.sizing?.cooling?.designLoad||0, c1=zb?.sizing?.cooling?.designLoad||0;
+      return { name, c0, c1, diff:c0>0?((c1-c0)/c0*100):0 };
+    }).sort((a,b) => Math.abs(b.diff)-Math.abs(a.diff)).slice(0,10);
+    const loadFmt = v => currentUnit==='SI' ? (v*CONV.btuh_W).toFixed(1) : (v/1e3).toFixed(1);
+    rows.forEach(r => {
+      const cls = r.diff>0?'color:var(--danger)':r.diff<0?'color:var(--success)':'';
+      h += `<tr><td style="padding:2px 4px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:80px;" title="${r.name}">${r.name.length>15?r.name.slice(0,15)+'…':r.name}</td>`;
+      h += `<td style="text-align:right;padding:2px 4px;">${loadFmt(r.c0)}</td>`;
+      h += `<td style="text-align:right;padding:2px 4px;">${loadFmt(r.c1)}</td>`;
+      h += `<td style="text-align:right;padding:2px 4px;${cls}">${r.diff>0?'+':''}${r.diff.toFixed(1)}%</td></tr>`;
+    });
+    h += `</table></div></div>`;
+  }
+  return h;
+}
+
+function destroyCharts() {
+  if (endUsePieInstance) { endUsePieInstance.destroy(); endUsePieInstance = null; }
+  if (monthlyBarInstance) { monthlyBarInstance.destroy(); monthlyBarInstance = null; }
+  document.getElementById('endUsePieWrap').style.display = 'none';
+  document.getElementById('monthlyBarWrap').style.display = 'none';
+}
+
+function renderEndUsePie(rpt) {
+  destroyCharts();
+  const aeu = rpt.annualEndUse;
+  if (!aeu || !Object.keys(aeu).length) return;
+  const entries = Object.entries(aeu).filter(([,v])=>typeof v==='number'&&v>0).sort((a,b)=>b[1]-a[1]);
+  if (!entries.length) return;
+
+  const EU_COLORS = ['#ef4444','#3b82f6','#f59e0b','#6b7280','#ec4899','#8b5cf6','#14b8a6','#06b6d4','#a855f7','#0ea5e9'];
+  const wrap = document.getElementById('endUsePieWrap');
+  wrap.style.display = 'block';
+  const ctx = document.getElementById('endUsePieChart').getContext('2d');
+  endUsePieInstance = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: entries.map(e=>e[0]),
+      datasets: [{ data: entries.map(e=>e[1]), backgroundColor: entries.map((_,i)=>EU_COLORS[i%EU_COLORS.length]), borderWidth:0 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: true,
+      plugins: {
+        legend: { position:'right', labels:{ color:'#94a3b8', font:{size:9}, boxWidth:10, padding:4 } },
+        tooltip: { callbacks: { label: ctx => `${ctx.label}: ${UChart(ctx.parsed)} (${(ctx.parsed/ctx.dataset.data.reduce((a,b)=>a+b,0)*100).toFixed(1)}%)` } }
+      }
+    }
+  });
+}
+
+function renderMonthlyBar(rpt) {
+  if (monthlyBarInstance) { monthlyBarInstance.destroy(); monthlyBarInstance = null; }
+  const mc = rpt.monthlyConsumption;
+  if (!mc || !Object.keys(mc).length) return;
+
+  // Aggregate monthly totals across all fuels
+  const monthTotals = new Array(12).fill(0);
+  Object.values(mc).forEach(endUses => {
+    Object.values(endUses).forEach(d => { if(d.monthly) d.monthly.forEach((v,i)=>monthTotals[i]+=v); });
+  });
+  if (monthTotals.every(v=>v===0)) return;
+
+  const MONTHS = L('months');
+  const wrap = document.getElementById('monthlyBarWrap');
+  wrap.style.display = 'block';
+  const ctx = document.getElementById('monthlyBarChart').getContext('2d');
+  const barData = currentUnit==='SI' ? monthTotals.map(v=>v*CONV.btu_Wh) : monthTotals.map(v=>v/1e3);
+  const barUnit = currentUnit==='SI' ? 'kWh' : 'kBtu';
+  monthlyBarInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: MONTHS,
+      datasets: [{ data:barData, backgroundColor:'rgba(59,130,246,.6)', borderRadius:3, borderSkipped:false }]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:true,
+      plugins: { legend:{display:false}, tooltip:{callbacks:{label:ctx=>`${ctx.parsed.y.toFixed(1)} ${barUnit}`}} },
+      scales: {
+        x: { ticks:{color:'#94a3b8',font:{size:8}}, grid:{display:false} },
+        y: { ticks:{color:'#94a3b8',font:{size:8},callback:v=>v>=1000?(v/1000).toFixed(0)+'k':v.toFixed(0)}, grid:{color:'rgba(51,65,85,.3)'} }
+      }
+    }
+  });
+}
+
+// =========================================================
+// [섹션 7] Space 3D 박스 생성
+// JSON의 BBox 데이터로 3D 공간 박스를 만들고 장면에 추가합니다.
+// =========================================================
+function getUnitScale() {
+  if (spacesData && spacesData.units === 'feet') return 1.0;
+  return 1 / 0.3048;
+}
+
+// Build per-space bounds from analytical surfaces (more accurate than BBox)
+function buildSurfaceBoundsMap() {
+  if (!spacesData?.analyticalSurfaces?.length) return null;
+  const rawMap = {}; // analyticalSpaceName → { min, max } in Revit coords (feet)
+  spacesData.analyticalSurfaces.forEach(surf => {
+    const name = surf.spaceName;
+    if (!name || !surf.vertices?.length) return;
+    if (!rawMap[name]) rawMap[name] = { min:[Infinity,Infinity,Infinity], max:[-Infinity,-Infinity,-Infinity] };
+    const b = rawMap[name];
+    surf.vertices.forEach(v => {
+      for (let i=0; i<3; i++) { b.min[i] = Math.min(b.min[i], v[i]); b.max[i] = Math.max(b.max[i], v[i]); }
+    });
+  });
+
+  // Build lookup: MEP Space spaceName → surface bounds
+  // Analytical space names may differ from MEP Space names
+  const surfNames = Object.keys(rawMap);
+  const result = {};
+
+  if (spacesData?.spaces) {
+    spacesData.spaces.forEach(sp => {
+      const mepName = sp.spaceName || '';
+      // Strategy 1: exact match
+      if (rawMap[mepName]) { result[mepName] = rawMap[mepName]; return; }
+      // Strategy 2: case-insensitive match
+      const lower = mepName.toLowerCase();
+      const found = surfNames.find(n => n.toLowerCase() === lower);
+      if (found) { result[mepName] = rawMap[found]; return; }
+      // Strategy 3: partial match (analytical name contains MEP name or vice versa)
+      const partial = surfNames.find(n =>
+        n.toLowerCase().includes(lower) || lower.includes(n.toLowerCase())
+      );
+      if (partial) { result[mepName] = rawMap[partial]; return; }
+      // Strategy 4: match by space number if available
+      if (sp.spaceNumber) {
+        const numMatch = surfNames.find(n => {
+          const m = n.match(/\d+/);
+          return m && m[0] === sp.spaceNumber;
+        });
+        if (numMatch) { result[mepName] = rawMap[numMatch]; return; }
+      }
+    });
+  }
+
+  console.log('Surface bounds map:', Object.keys(rawMap).length, 'analytical →', Object.keys(result).length, 'matched');
+  console.log('Analytical space names:', surfNames);
+  console.log('MEP Space names:', spacesData.spaces.map(s => s.spaceName));
+  return Object.keys(result).length > 0 ? result : null;
+}
+
+function buildSpaces() {
+  // Clear
+  spaceMeshes.forEach(s => { scene.remove(s.mesh); scene.remove(s.edges); });
+  spaceMeshes = [];
+  labelSprites.forEach(s => scene.remove(s));
+  labelSprites = [];
+  if (!spacesData) return;
+
+  // Unit conversion: v1.1 exports in feet (scale=1), v1.0 exported in meters
+  const S = getUnitScale();
+
+  // If analytical surfaces exist, derive tighter bounds from surface vertices
+  const surfBounds = buildSurfaceBoundsMap();
+
+  // Revit Z-up → Three.js Y-up transform: (x, y, z) → (x, z, -y)
+  function toYUp(bMin, bMax) {
+    return {
+      x0: bMin[0]*S, y0: bMin[2]*S,  z0: -bMax[1]*S,
+      x1: bMax[0]*S, y1: bMax[2]*S,  z1: -bMin[1]*S
+    };
+  }
+  // Surface bounds are always in feet (no scale needed)
+  function toYUpFt(bMin, bMax) {
+    return {
+      x0: bMin[0], y0: bMin[2],  z0: -bMax[1],
+      x1: bMax[0], y1: bMax[2],  z1: -bMin[1]
+    };
+  }
+
+  // Offset: align to GLB model center
+  let ox, oy, oz;
+  if (modelCenter) {
+    ox = modelCenter.x; oy = modelCenter.y; oz = modelCenter.z;
+  } else {
+    let cx=0, cy=0, cz=0, n=0;
+    spacesData.spaces.forEach(s => {
+      if (s.bboxMin && s.bboxMax) {
+        const b = toYUp(s.bboxMin, s.bboxMax);
+        cx += (b.x0+b.x1)/2; cy += (b.y0+b.y1)/2; cz += (b.z0+b.z1)/2;
+        n++;
+      }
+    });
+    if (n) { ox=cx/n; oy=cy/n; oz=cz/n; } else { ox=oy=oz=0; }
+  }
+
+  const opacity = parseFloat(document.getElementById('opacitySlider').value);
+  const validOnly = document.getElementById('validOnlyToggle')?.checked ?? false;
+  let built = 0, skipped = 0, totalValid = 0;
+
+  spacesData.spaces.forEach(sp => { if (sp.area > 0 || sp.volume > 0) totalValid++; });
+  const vc = document.getElementById('validCount');
+  if (vc) vc.textContent = `(${totalValid}/${spacesData.spaces.length})`;
+
+  // Compute model envelope for clamping (from GLB model or from all analytical surfaces)
+  let modelEnvelope = null;
+  if (glbGroup) {
+    const glbBox = new THREE.Box3().setFromObject(glbGroup);
+    modelEnvelope = {
+      x0: glbBox.min.x, y0: glbBox.min.y, z0: glbBox.min.z,
+      x1: glbBox.max.x, y1: glbBox.max.y, z1: glbBox.max.z
+    };
+  } else if (surfBounds) {
+    // Derive envelope from all analytical surface bounds
+    const env = { x0:Infinity, y0:Infinity, z0:Infinity, x1:-Infinity, y1:-Infinity, z1:-Infinity };
+    Object.values(surfBounds).forEach(sb => {
+      const tb = toYUpFt(sb.min, sb.max);
+      env.x0 = Math.min(env.x0, tb.x0-ox); env.y0 = Math.min(env.y0, tb.y0-oy); env.z0 = Math.min(env.z0, tb.z0-oz);
+      env.x1 = Math.max(env.x1, tb.x1-ox); env.y1 = Math.max(env.y1, tb.y1-oy); env.z1 = Math.max(env.z1, tb.z1-oz);
+    });
+    if (env.x0 < Infinity) modelEnvelope = env;
+  }
+
+  // Helper: clamp space bounds to model envelope
+  function clampToEnvelope(b, ox, oy, oz) {
+    if (!modelEnvelope) return b;
+    // b coordinates are in world-space before offset subtraction
+    // modelEnvelope is in world-space after offset subtraction (centered)
+    // So we need to compare (b.x0-ox) with modelEnvelope
+    const cx0 = Math.max(b.x0 - ox, modelEnvelope.x0) + ox;
+    const cy0 = Math.max(b.y0 - oy, modelEnvelope.y0) + oy;
+    const cz0 = Math.max(b.z0 - oz, modelEnvelope.z0) + oz;
+    const cx1 = Math.min(b.x1 - ox, modelEnvelope.x1) + ox;
+    const cy1 = Math.min(b.y1 - oy, modelEnvelope.y1) + oy;
+    const cz1 = Math.min(b.z1 - oz, modelEnvelope.z1) + oz;
+    // Only clamp if the result is still valid
+    if (cx0 < cx1 && cy0 < cy1 && cz0 < cz1) {
+      return { x0:cx0, y0:cy0, z0:cz0, x1:cx1, y1:cy1, z1:cz1 };
+    }
+    return b; // don't clamp if it would produce invalid box
+  }
+
+  spacesData.spaces.forEach((sp, idx) => {
+    if (!sp.bboxMin || !sp.bboxMax) return;
+
+    const isValid = (sp.area > 0 || sp.volume > 0);
+    if (validOnly && !isValid) { skipped++; return; }
+
+    // Use surface-derived bounds if available (more accurate), otherwise fall back to BBox
+    let b;
+    const sbKey = sp.spaceName; // analytical surfaces use spaceName
+    if (surfBounds && surfBounds[sbKey]) {
+      b = toYUpFt(surfBounds[sbKey].min, surfBounds[sbKey].max);
+    } else {
+      b = toYUp(sp.bboxMin, sp.bboxMax);
+    }
+
+    // Clamp to model envelope so boxes don't extend beyond the building
+    b = clampToEnvelope(b, ox, oy, oz);
+
+    const sx = b.x1-b.x0, sy = b.y1-b.y0, sz = b.z1-b.z0;
+    if (sx<=0.01 || sy<=0.01 || sz<=0.01) return;
+
+    const geo = new THREE.BoxGeometry(sx, sy, sz);
+    const spColor = isValid ? 0x3b82f6 : 0x64748b;
+    const spOpacity = isValid ? opacity : opacity * 0.3;
+    const mat = new THREE.MeshPhongMaterial({ color:spColor, transparent:true, opacity:spOpacity, side:THREE.DoubleSide, depthWrite:false });
+    const mesh = new THREE.Mesh(geo, mat);
+
+    mesh.position.set(
+      (b.x0+b.x1)/2 - ox,
+      (b.y0+b.y1)/2 - oy,
+      (b.z0+b.z1)/2 - oz
+    );
+    mesh.userData = { spaceIdx: idx, space: sp };
+    scene.add(mesh);
+
+    const edgeGeo = new THREE.EdgesGeometry(geo);
+    const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({ color:0x60a5fa, transparent:true, opacity:0.7 }));
+    edges.position.copy(mesh.position);
+    scene.add(edges);
+
+    spaceMeshes.push({ mesh, edges, space: sp, idx });
+
+    const label = makeLabel(sp.spaceName || `Space ${sp.spaceNumber}`);
+    label.position.copy(mesh.position);
+    label.position.y += sy/2 + 0.5;
+    scene.add(label);
+    labelSprites.push(label);
+    built++;
+  });
+
+  if (!glbGroup) fitCameraToSpaces();
+
+  matchedData = spacesData.spaces.map(sp => ({ space: sp, htmZone: null }));
+  updateColors();
+  renderSpaceList();
+  document.getElementById('legend').classList.add('visible');
+  status(`Built ${built} space boxes` + (skipped ? ` (${skipped} empty spaces hidden)` : ''));
+
+  // Build analytical surfaces if present
+  if (spacesData.analyticalSurfaces && spacesData.analyticalSurfaces.length > 0) {
+    buildAnalyticalSurfaces();
+  }
+}
+
+function makeLabel(text) {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  c.width = 256; c.height = 64;
+  ctx.font = 'bold 22px Segoe UI, sans-serif';
+  ctx.fillStyle = 'rgba(226,232,240,0.9)';
+  ctx.textAlign = 'center';
+  ctx.fillText(text, 128, 38);
+  const tex = new THREE.CanvasTexture(c);
+  tex.minFilter = THREE.LinearFilter;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map:tex, depthTest:false, transparent:true }));
+  sprite.scale.set(2.5, 0.65, 1);
+  return sprite;
+}
+
+// =========================================================
+// [섹션 8] 해석 표면 생성
+// JSON의 Analytical Surface 데이터로 벽/바닥/지붕/창 경계면을 만듭니다.
+// =========================================================
+function buildAnalyticalSurfaces() {
+  // Clear existing
+  surfaceMeshes.forEach(s => { scene.remove(s.mesh); if(s.edges) scene.remove(s.edges); });
+  surfaceMeshes = [];
+
+  if (!spacesData || !spacesData.analyticalSurfaces) return;
+
+  const surfaces = spacesData.analyticalSurfaces;
+  // JSON v1.1 already stores in feet — vertices are already in feet
+  // (analytical surfaces are always stored in feet, same as BBox v1.1)
+
+  const ox = modelCenter ? modelCenter.x : 0;
+  const oy = modelCenter ? modelCenter.y : 0;
+  const oz = modelCenter ? modelCenter.z : 0;
+
+  const opacity = parseFloat(document.getElementById('surfaceOpacity')?.value || '0.35');
+  let built = 0;
+
+  surfaces.forEach((surf, idx) => {
+    if (!surf.vertices || surf.vertices.length < 3) return;
+
+    try {
+      // Transform Revit Z-up → Three.js Y-up: (x, y, z) → (x, z, -y)
+      const pts3d = surf.vertices.map(v => new THREE.Vector3(v[0] - ox, v[2] - oy, -v[1] - oz));
+
+      // Build a planar polygon mesh using BufferGeometry + triangle fan
+      const positions = [];
+      const indices = [];
+
+      // Add positions
+      pts3d.forEach(p => positions.push(p.x, p.y, p.z));
+
+      // Triangulate as a fan from the first vertex
+      for (let i = 1; i < pts3d.length - 1; i++) {
+        indices.push(0, i, i + 1);
+      }
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geo.setIndex(indices);
+      geo.computeVertexNormals();
+
+      const color = SURFACE_TYPE_COLORS[surf.surfaceType] || 0x94a3b8;
+      const mat = new THREE.MeshPhongMaterial({
+        color, transparent: true, opacity,
+        side: THREE.DoubleSide, depthWrite: false
+      });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.userData = { surfaceIdx: idx, surface: surf };
+      scene.add(mesh);
+
+      // Edge outline
+      const edgeGeo = new THREE.BufferGeometry();
+      const edgePositions = [];
+      for (let i = 0; i < pts3d.length; i++) {
+        const a = pts3d[i], b = pts3d[(i + 1) % pts3d.length];
+        edgePositions.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      }
+      edgeGeo.setAttribute('position', new THREE.Float32BufferAttribute(edgePositions, 3));
+      const edges = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({
+        color, transparent: true, opacity: 0.6
+      }));
+      scene.add(edges);
+
+      surfaceMeshes.push({ mesh, edges, surface: surf, idx });
+      built++;
+    } catch (err) {
+      console.warn(`Surface ${idx} (${surf.surfaceName}) skipped:`, err);
+    }
+  });
+
+  // Show surface controls
+  if (built > 0) {
+    document.getElementById('surfaceControls').style.display = 'flex';
+    document.getElementById('surfaceOpacityRow').style.display = 'flex';
+    document.getElementById('btnSurfaces').style.display = 'flex';
+
+    // Count types
+    const typeCounts = {};
+    surfaces.forEach(s => { const t = s.surfaceType || 'Unknown'; typeCounts[t] = (typeCounts[t] || 0) + 1; });
+    const typeStr = Object.entries(typeCounts).map(([k,v]) => `${k}:${v}`).join(', ');
+    status(`Built ${built} analytical surfaces (${typeStr})`);
+    console.log('Analytical Surface types:', typeCounts);
+  }
+}
+
+function updateSurfaceDisplay() {
+  const mode = document.getElementById('surfaceDisplay')?.value || 'colored';
+  const opacity = parseFloat(document.getElementById('surfaceOpacity')?.value || '0.35');
+
+  surfaceMeshes.forEach(s => {
+    if (mode === 'hidden') {
+      s.mesh.visible = false;
+      if (s.edges) s.edges.visible = false;
+    } else if (mode === 'wireframe') {
+      s.mesh.visible = false;
+      if (s.edges) { s.edges.visible = surfacesVisible; s.edges.material.opacity = 0.8; }
+    } else {
+      s.mesh.visible = surfacesVisible;
+      s.mesh.material.opacity = opacity;
+      if (s.edges) { s.edges.visible = surfacesVisible; s.edges.material.opacity = 0.6; }
+    }
+  });
+}
+
+function fitCameraToSpaces() {
+  if (!spaceMeshes.length) return;
+  const box = new THREE.Box3();
+  spaceMeshes.forEach(s => box.expandByObject(s.mesh));
+  const center = box.getCenter(new THREE.Vector3());
+  const size = box.getSize(new THREE.Vector3());
+  const d = Math.max(size.x, size.y, size.z) * 1.8;
+  controls.target.copy(center);
+  camera.position.set(center.x + d*0.6, center.y + d*0.5, center.z + d*0.8);
+  controls.update();
+}
+
+// =========================================================
+// [섹션 9-1] Zone 매칭
+// Space 이름과 HTM Zone 이름을 다양한 전략으로 매칭합니다.
+// =========================================================
+function matchZones() {
+  const htmReport = getActiveHTM();
+  if (!spacesData || !htmReport) return;
+  matchedData = [];
+  let matched = 0;
+
+  // Build HTM zone lookup maps
+  const htmZones = htmReport.zoneDetail;
+  const htmExact = {};    // exact name map
+  const htmByNumName = {}; // "NUMBER NAME" without trailing duplicate number
+  const htmByFloorType = []; // parsed HVAC format zones
+
+  htmZones.forEach(z => {
+    const upper = z.name.toUpperCase().trim();
+    htmExact[upper] = z;
+
+    // Parse HVAC naming: "6F_OPENWORKSPACE_VAV-1" → floor=6F, type=OPENWORKSPACE
+    const hvacMatch = upper.match(/^(\d+F)_([A-Z]+)_(VAV|FCU|CAV|AHU|PTAC|HP)[-\s]?(\d*)$/);
+    if (hvacMatch) {
+      htmByFloorType.push({
+        zone: z, floor: hvacMatch[1], spaceType: hvacMatch[2],
+        system: hvacMatch[3], index: hvacMatch[4] || '1'
+      });
+    }
+  });
+
+  // Match each space
+  const usedHtm = new Set(); // prevent double matching
+
+  spacesData.spaces.forEach(sp => {
+    const key = (sp.zoneMatchKey || '').toUpperCase().trim();
+    let hz = null;
+
+    // Strategy 1: Exact match on zoneMatchKey
+    if (htmExact[key] && !usedHtm.has(htmExact[key].name)) {
+      hz = htmExact[key];
+    }
+
+    // Strategy 2: Match without trailing duplicate number
+    // "1 STAIRWELL 1" → try "1 STAIRWELL"
+    if (!hz) {
+      const parts = key.split(/\s+/);
+      if (parts.length >= 3) {
+        const shortKey = parts.slice(0, -1).join(' '); // remove last word
+        if (htmExact[shortKey] && !usedHtm.has(htmExact[shortKey].name)) {
+          hz = htmExact[shortKey];
+        }
+      }
+      // Also try: "STAIRWELL 1" → "1 STAIRWELL"  (number before name)
+      if (!hz && parts.length >= 2) {
+        const num = parts[0];
+        const name = parts.slice(1, -1).join(' ') || parts.slice(1).join(' ');
+        const altKey = num + ' ' + name;
+        if (htmExact[altKey] && !usedHtm.has(htmExact[altKey].name)) {
+          hz = htmExact[altKey];
+        }
+      }
+    }
+
+    // Strategy 3: HVAC zone format matching by floor + space type keyword
+    if (!hz && sp.levelName) {
+      const spFloor = sp.levelName.toUpperCase().trim();
+      const spName = (sp.spaceName || '').toUpperCase();
+      const spType = (sp.spaceType || '').toUpperCase();
+
+      // Map Revit space types to HVAC keywords
+      const typeKeywords = [];
+      if (spName.includes('RESTROOM') || spType.includes('RESTROOM')) typeKeywords.push('RESTROOM');
+      if (spName.includes('OPEN') || spName.includes('WORKSPACE') || spType.includes('OFFICE') || spType.includes('OPEN')) typeKeywords.push('OPENWORKSPACE');
+      if (spName.includes('PANTRY') || spName.includes('KITCHEN')) typeKeywords.push('OPENWORKSPACE'); // pantry often grouped with open workspace
+      if (spName.includes('STAIR')) typeKeywords.push('STAIRWELL');
+      if (spName.includes('ELEVATOR') || spName.includes('SHAFT')) typeKeywords.push('ELEVATOR');
+
+      for (const hvac of htmByFloorType) {
+        if (usedHtm.has(hvac.zone.name)) continue;
+        if (hvac.floor !== spFloor) continue;
+
+        for (const kw of typeKeywords) {
+          if (hvac.spaceType.includes(kw) || kw.includes(hvac.spaceType)) {
+            hz = hvac.zone;
+            break;
+          }
+        }
+        if (hz) break;
+      }
+    }
+
+    // Strategy 4: Volume-based matching as fallback
+    if (!hz && sp.volume > 0) {
+      let bestMatch = null, bestDiff = Infinity;
+      for (const z of htmZones) {
+        if (usedHtm.has(z.name)) continue;
+        if (z.volume > 0) {
+          // Convert JSON m³ to ft³ (1 m³ = 35.3147 ft³)
+          const spVolFt3 = sp.volume * 35.3147;
+          const diff = Math.abs(spVolFt3 - z.volume) / Math.max(spVolFt3, z.volume);
+          if (diff < 0.15 && diff < bestDiff) { // within 15% tolerance
+            bestDiff = diff;
+            bestMatch = z;
+          }
+        }
+      }
+      if (bestMatch) hz = bestMatch;
+    }
+
+    if (hz) { matched++; usedHtm.add(hz.name); }
+    matchedData.push({ space: sp, htmZone: hz });
+  });
+
+  // Log matching details for debugging
+  console.log('=== Zone Matching Results ===');
+  console.log('HTM Zones:', htmZones.map(z => z.name));
+  console.log('HVAC parsed:', htmByFloorType.map(h => `${h.floor}_${h.spaceType}_${h.system}-${h.index}`));
+  matchedData.forEach(m => {
+    const sp = m.space;
+    console.log(`  ${sp.spaceName} (${sp.levelName}, key="${sp.zoneMatchKey}") → ${m.htmZone ? m.htmZone.name : '❌ no match'}`);
+  });
+
+  const el = document.getElementById('matchStatus');
+  if (matched === spacesData.spaces.length) { el.className = 'match-status good'; el.textContent = `✅ ${matched}/${spacesData.spaces.length} ${L('match_done')}`; }
+  else if (matched > 0) { el.className = 'match-status good'; el.textContent = `✅ ${matched} ${L('match_ok')} / ${spacesData.spaces.length} spaces (${htmZones.length} HTM zones)`; }
+  else { el.className = 'match-status partial'; el.textContent = `⚠️ ${L('match_fail')}`; }
+
+  updateColors();
+  renderSpaceList();
+  status(`Matched ${matched}/${spacesData.spaces.length} spaces to ${htmZones.length} HTM zones`);
+}
+
+// =========================================================
+// [섹션 9] 색상 시스템 (히트맵 + 카테고리)
+// Space 박스에 면적/부하/타입별 색상을 적용하고 범례를 업데이트합니다.
+// =========================================================
+// (CAT_COLORS는 섹션 1에서 정의됨)
+function heatColor(t) {
+  t = Math.max(0, Math.min(1, t));
+  let r,g,b;
+  if (t < 0.5) { const s=t*2; r=s; g=s; b=1-s*0.5; }
+  else { const s=(t-0.5)*2; r=1; g=1-s; b=0; }
+  return new THREE.Color(r,g,b);
+}
+
+function updateColors() {
+  const metric = document.getElementById('colorMetric').value;
+  const opacity = parseFloat(document.getElementById('opacitySlider').value);
+  const wire = document.getElementById('wireframeToggle').checked;
+  const isNum = ['area','volume','lightingDensity','plugDensity','totalLoad','coolingLoad','heatingLoad'].includes(metric);
+
+  if (isNum) {
+    const vals = spaceMeshes.map(s => {
+      const md = matchedData.find(m => m.space.guid === s.space.guid);
+      const hz = md ? md.htmZone : null;
+      switch(metric) {
+        case 'area': return s.space.area||0;
+        case 'volume': return s.space.volume||0;
+        case 'lightingDensity': return hz?hz.lightingDensity||0:0;
+        case 'plugDensity': return hz?hz.plugDensity||0:0;
+        case 'totalLoad': return hz?hz.totalLoadDensity||0:0;
+        case 'coolingLoad': return hz&&hz.sizing&&hz.sizing.cooling?hz.sizing.cooling.designLoad:0;
+        case 'heatingLoad': return hz&&hz.sizing&&hz.sizing.heating?hz.sizing.heating.designLoad:0;
+        default: return 0;
+      }
+    });
+    const pos = vals.filter(v=>v>0);
+    const mn = pos.length ? Math.min(...pos) : 0;
+    const mx = pos.length ? Math.max(...pos) : 1;
+    const rng = mx-mn || 1;
+
+    spaceMeshes.forEach((s,i) => {
+      const t = vals[i]>0 ? (vals[i]-mn)/rng : 0;
+      s.mesh.material.color = vals[i]>0 ? heatColor(t) : new THREE.Color(0x334155);
+      s.mesh.material.opacity = vals[i]>0 ? opacity : opacity*0.3;
+      s.mesh.material.wireframe = wire;
+      s.edges.material.color = vals[i]>0 ? heatColor(t) : new THREE.Color(0x475569);
+    });
+    updateLegendNum(metric, mn, mx);
+  } else {
+    let cats;
+    if (metric==='spaceType') cats = [...new Set(spacesData.spaces.map(s=>s.spaceType||'Unknown'))];
+    else if (metric==='level') cats = [...new Set(spacesData.spaces.map(s=>s.levelName||'?'))].sort();
+    else cats = ['Conditioned','Unconditioned'];
+
+    spaceMeshes.forEach((s,i) => {
+      let ci;
+      if (metric==='spaceType') ci = cats.indexOf(s.space.spaceType||'Unknown');
+      else if (metric==='level') ci = cats.indexOf(s.space.levelName||'?');
+      else ci = s.space.conditioned ? 0 : 1;
+      const hex = parseInt(CAT_COLORS[ci % CAT_COLORS.length].replace('#',''),16);
+      s.mesh.material.color.setHex(hex);
+      s.mesh.material.opacity = opacity;
+      s.mesh.material.wireframe = wire;
+      s.edges.material.color.setHex(hex);
+    });
+    updateLegendCat(cats);
+  }
+}
+
+function updateLegendNum(metric, mn, mx) {
+  document.getElementById('legend').classList.add('visible');
+  document.getElementById('legendTitle').textContent = metric;
+  const cv = document.getElementById('legendBar'); const ctx = cv.getContext('2d');
+  const g = ctx.createLinearGradient(0,0,180,0);
+  for (let i=0;i<=10;i++) { const c=heatColor(i/10); g.addColorStop(i/10,`rgb(${c.r*255|0},${c.g*255|0},${c.b*255|0})`); }
+  ctx.clearRect(0,0,180,12); ctx.fillStyle=g; ctx.beginPath(); ctx.roundRect(0,0,180,12,6); ctx.fill();
+  const fmt = v => v>=1000?(v/1000).toFixed(1)+'k':v.toFixed(1);
+  document.getElementById('legendMin').textContent = fmt(mn);
+  document.getElementById('legendMax').textContent = fmt(mx);
+}
+function updateLegendCat(cats) {
+  document.getElementById('legend').classList.add('visible');
+  document.getElementById('legendTitle').textContent = '';
+  const cv = document.getElementById('legendBar'); const ctx = cv.getContext('2d');
+  ctx.clearRect(0,0,180,12); const w=180/cats.length;
+  cats.forEach((c,i) => { ctx.fillStyle=CAT_COLORS[i%CAT_COLORS.length]; ctx.fillRect(i*w,0,w-1,12); });
+  document.getElementById('legendMin').textContent = cats[0]||'';
+  document.getElementById('legendMax').textContent = cats[cats.length-1]||'';
+}
+
+// =========================================================
+// [섹션 10] Space 목록 & 선택
+// 사이드바의 Space 목록을 렌더링하고 선택 이벤트를 처리합니다.
+// =========================================================
+function renderSpaceList() {
+  if (!spacesData) { document.getElementById('spaceList').innerHTML = ''; return; }
+  const items = matchedData.length ? matchedData : spacesData.spaces.map(s=>({space:s,htmZone:null}));
+  let html = '';
+  const validOnly = document.getElementById('validOnlyToggle')?.checked ?? false;
+  items.forEach(item => {
+    const sp = item.space; const hz = item.htmZone;
+    const isValid = (sp.area > 0 || sp.volume > 0);
+    if (validOnly && !isValid) return; // hide from list too
+    const sel = selectedSpace===sp.guid ? 'selected' : '';
+    const dimStyle = isValid ? '' : ' style="opacity:0.4"';
+    const badge = !isValid ? `<span style="color:var(--accent);font-size:.6rem;margin-left:4px">⚠ ${L('not_set')}</span>` : '';
+    const areaStr = sp.area ? ' · '+fmtArea(sp.area) : '';
+    html += `<div class="space-item ${sel}" data-guid="${sp.guid}"${dimStyle}>
+      <div class="name">${hz?'🔗 ':''}${sp.spaceName||'Space '+sp.spaceNumber}${badge}</div>
+      <div class="meta">${sp.levelName} · ${sp.spaceType||'—'}${areaStr}</div>
+    </div>`;
+  });
+  document.getElementById('spaceList').innerHTML = html;
+
+  // Re-bind clicks (event delegation)
+  document.getElementById('spaceList').onclick = e => {
+    const item = e.target.closest('.space-item');
+    if (item) selectSpace(item.dataset.guid);
+  };
+}
+
+function selectSpace(guid) {
+  selectedSpace = guid;
+  selectedSurface = null;
+  const baseOpacity = parseFloat(document.getElementById('opacitySlider').value);
+
+  // Find the selected mesh for camera targeting
+  let selectedMesh = null;
+  spaceMeshes.forEach(s => {
+    const isSel = s.space.guid === guid;
+    if (isSel) {
+      // Highlight selected: full opacity + bright edges
+      s.mesh.material.opacity = Math.min(baseOpacity * 2.5, 0.85);
+      s.edges.material.opacity = 1;
+      s.edges.material.color.setHex(0xfbbf24); // gold highlight
+      s.mesh.renderOrder = 999; // render on top
+      s.edges.renderOrder = 999;
+      selectedMesh = s;
+    } else {
+      // Dim non-selected: low opacity
+      s.mesh.material.opacity = baseOpacity * 0.15;
+      s.edges.material.opacity = 0.15;
+      // Restore original edge color (based on current color metric)
+      s.mesh.renderOrder = 0;
+      s.edges.renderOrder = 0;
+    }
+  });
+
+  // Smoothly move camera to focus on selected space
+  if (selectedMesh) {
+    const target = selectedMesh.mesh.position.clone();
+    controls.target.lerp(target, 0.5);
+  }
+
+  // Reset surface highlight
+  const sOp = parseFloat(document.getElementById('surfaceOpacity')?.value || '0.35');
+  surfaceMeshes.forEach(s => { if(s.edges) s.edges.material.opacity=0.6; s.mesh.material.opacity=sOp; });
+  renderSpaceList();
+  showDetail(guid);
+  showPropertiesForSpace(guid);
+}
+
+function showDetail(guid) {
+  const panel = document.getElementById('rightPanel');
+  const sp = spacesData.spaces.find(s=>s.guid===guid);
+  if (!sp) { panel.classList.remove('visible'); return; }
+  const md = matchedData.find(m=>m.space.guid===guid);
+  const hz = md ? md.htmZone : null;
+  panel.classList.add('visible');
+  document.getElementById('detailTitle').textContent = `📍 ${sp.spaceName}`;
+
+  const cell = (l,v) => `<div class="detail-cell"><div class="dl">${l}</div><div class="dv">${v}</div></div>`;
+  let g = cell('Level', sp.levelName||'—') + cell('Type', sp.spaceType||'—');
+  g += cell('Area', sp.area ? fmtArea(sp.area) : '—');
+  g += cell('Volume', sp.volume ? fmtVol(sp.volume) : '—');
+  g += cell('Conditioned', sp.conditioned?'Yes':'No');
+  g += cell('Occupancy', sp.designOccupancy ? sp.designOccupancy.toFixed(2) : '—');
+
+  if (sp.bboxMin && sp.bboxMax) {
+    const S = getUnitScale();
+    const dx = Math.abs(sp.bboxMax[0]-sp.bboxMin[0])*S;
+    const dy = Math.abs(sp.bboxMax[1]-sp.bboxMin[1])*S;
+    const dz = Math.abs(sp.bboxMax[2]-sp.bboxMin[2])*S;
+    g += `<div class="detail-cell wide"><div class="dl">${L('dimensions')}</div><div class="dv">${fmtLen(dx)} × ${fmtLen(dy)} × ${fmtLen(dz)}</div></div>`;
+  }
+
+  document.getElementById('detailGrid').innerHTML = g;
+
+  const htmSection = document.getElementById('htmDetail');
+  const htmContent = document.getElementById('htmDetailContent');
+  if (hz) {
+    htmSection.style.display = 'block';
+    let h = `<div style="font-size:.7rem;color:var(--text-dim);margin-bottom:6px;">HTM Zone: <b>${hz.name}</b></div>`;
+    const metric = (l,v) => `<div class="htm-metric"><span class="metric-label">${l}</span><span class="metric-val">${v}</span></div>`;
+
+    h += `<div style="font-size:.62rem;color:var(--primary-light);font-weight:600;margin:4px 0 2px;">${L('space_info')}</div>`;
+    if (hz.area) h += metric(L('zone_area'), U(hz.area,'area_ft2'));
+    if (hz.volume) h += metric(L('zone_volume'), U(hz.volume,'vol_ft3'));
+    if (hz.ceilingHeight) h += metric(L('ceiling_h'), U(hz.ceilingHeight,'len_ft'));
+    if (hz.grossWallArea) h += metric(L('ext_wall'), U(hz.grossWallArea,'area_ft2'));
+    if (hz.windowArea) h += metric(L('window_area'), U(hz.windowArea,'area_ft2'));
+    if (hz.conditioned) h += metric(L('hvac_yn'), hz.conditioned);
+
+    const hasGains = hz.lightingDensity || hz.plugDensity || hz.totalLoadDensity || hz.people?.count;
+    if (hasGains) {
+      h += `<div style="font-size:.62rem;color:var(--primary-light);font-weight:600;margin:8px 0 2px;">${L('internal_gains')}</div>`;
+      if (hz.people?.count) h += metric(L('occupancy'), `${hz.people.count.toFixed(0)} ${L('persons')}`);
+      if (hz.people?.areaPerPerson) h += metric(L('area_pp'), currentUnit==='SI' ? (hz.people.areaPerPerson*CONV.ft2_m2).toFixed(1)+' m²/'+L('persons') : hz.people.areaPerPerson.toFixed(1)+' '+L('pp_unit'));
+      if (hz.lightingDensity) h += metric(L('lighting_d'), U(hz.lightingDensity,'density_btuhft2'));
+      if (hz.lights?.density) h += metric(L('lighting_init'), U(hz.lights.density,'density_btuhft2'));
+      if (hz.plugDensity) h += metric(L('equip_d'), U(hz.plugDensity,'density_btuhft2'));
+      if (hz.equipment?.density) h += metric(L('equip_init'), U(hz.equipment.density,'density_btuhft2'));
+      if (hz.totalLoadDensity) h += metric(L('total_load_d'), U(hz.totalLoadDensity,'density_btuhft2'));
+    }
+
+    if (hz.infiltration?.flowRate || hz.infiltration?.ach) {
+      h += `<div style="font-size:.62rem;color:var(--primary-light);font-weight:600;margin:8px 0 2px;">${L('infiltration')}</div>`;
+      if (hz.infiltration.flowRate) h += metric(L('flow_rate'), U(hz.infiltration.flowRate,'cfm'));
+      if (hz.infiltration.ach) h += metric('ACH', U(hz.infiltration.ach,'ach'));
+    }
+
+    h += `<div style="font-size:.62rem;color:var(--primary-light);font-weight:600;margin:8px 0 2px;">${L('design_loads')}</div>`;
+    if (hz.sizing?.cooling) {
+      h += metric(L('cooling_design'), U(hz.sizing.cooling.designLoad/1e3,'load_kbtuh'));
+      if (hz.sizing.cooling.designAirFlow) h += metric(L('cooling_af'), U(hz.sizing.cooling.designAirFlow,'cfm'));
+      if (hz.sizing.cooling.peakDate) h += metric(L('cooling_peak'), hz.sizing.cooling.peakDate);
+      if (hz.sizing.cooling.peakTemp) h += metric(L('peak_temp'), U(hz.sizing.cooling.peakTemp,'temp_F'));
+    } else {
+      h += metric(L('cooling_design'), '—');
+    }
+    if (hz.sizing?.heating) {
+      h += metric(L('heating_design'), U(hz.sizing.heating.designLoad/1e3,'load_kbtuh'));
+      if (hz.sizing.heating.designAirFlow) h += metric(L('heating_af'), U(hz.sizing.heating.designAirFlow,'cfm'));
+      if (hz.sizing.heating.peakDate) h += metric(L('heating_peak'), hz.sizing.heating.peakDate);
+    } else {
+      h += metric(L('heating_design'), '—');
+    }
+
+    if (htmReports.length >= 2) {
+      const otherIdx = activeReportIdx === 0 ? 1 : 0;
+      const otherReport = htmReports[otherIdx];
+      const otherZone = otherReport.zoneDetail.find(z => z.name === hz.name);
+      if (otherZone) {
+        h += `<div style="margin-top:8px;padding:8px;border-top:1px solid var(--panel-border);background:rgba(245,158,11,.05);border-radius:6px;">`;
+        h += `<div style="font-size:.65rem;color:var(--accent);font-weight:600;margin-bottom:4px;">${L('compare_label')} ${otherIdx+1}</div>`;
+        const cmp = (label, v1, v2, uType) => {
+          if (!v1 && !v2) return '';
+          const diff = v2 - v1;
+          const pct = v1 > 0 ? ((diff/v1)*100).toFixed(1) : '—';
+          const cls = diff > 0 ? 'up' : diff < 0 ? 'down' : '';
+          return `<div class="htm-metric"><span class="metric-label">${label}</span><span class="metric-val ${cls}">${U(v2,uType)} <span class="cr-diff">(${diff>0?'+':''}${pct}%)</span></span></div>`;
+        };
+        if (hz.area || otherZone.area) h += cmp(L('zone_area'), hz.area, otherZone.area, 'area_ft2');
+        h += cmp(L('lighting_d'), hz.lightingDensity, otherZone.lightingDensity, 'density_btuhft2');
+        h += cmp(L('equip_d'), hz.plugDensity, otherZone.plugDensity, 'density_btuhft2');
+        h += cmp(L('total_load_d'), hz.totalLoadDensity, otherZone.totalLoadDensity, 'density_btuhft2');
+        if (hz.sizing?.cooling && otherZone.sizing?.cooling)
+          h += cmp(L('cooling'), hz.sizing.cooling.designLoad/1e3, otherZone.sizing.cooling.designLoad/1e3, 'load_kbtuh');
+        if (hz.sizing?.heating && otherZone.sizing?.heating)
+          h += cmp(L('heating'), hz.sizing.heating.designLoad/1e3, otherZone.sizing.heating.designLoad/1e3, 'load_kbtuh');
+        if (hz.infiltration?.ach && otherZone.infiltration?.ach)
+          h += cmp('ACH', hz.infiltration.ach, otherZone.infiltration.ach, 'ach');
+        h += `</div>`;
+      } else {
+        h += `<div style="margin-top:6px;font-size:.6rem;color:var(--text-dim);">${L('report_compare')} ${otherIdx+1}${L('no_zone')}</div>`;
+      }
+    }
+
+    htmContent.innerHTML = h;
+  } else {
+    htmSection.style.display = 'none';
+  }
+}
+
+// =========================================================
+// [섹션 11] Revit 스타일 속성 패널
+// 선택한 Space/Surface의 상세 속성을 카테고리별로 표시합니다.
+// =========================================================
+let selectedSurface = null; // currently selected analytical surface
+
+function makeCatHeader(label) {
+  return `<div class="props-cat-header" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed')"><span class="cat-chevron">▼</span>${label}</div>`;
+}
+function makePropsTable(rows) {
+  if (!rows.length) return '';
+  return `<table class="props-table">${rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('')}</table>`;
+}
+
+function showPropertiesForSpace(guid) {
+  const panel = document.getElementById('propsPanel');
+  const content = document.getElementById('propsContent');
+  const typeSelect = document.getElementById('propsTypeSelect');
+  const sp = spacesData?.spaces.find(s => s.guid === guid);
+  if (!sp) { panel.classList.remove('visible'); return; }
+
+  panel.classList.add('visible');
+  document.getElementById('propsIcon').textContent = '📦';
+
+  // Populate dropdown with space name + related surfaces
+  const relatedSurfaces = spacesData?.analyticalSurfaces?.filter(s =>
+    s.spaceName && (s.spaceName === sp.spaceName || s.spaceName.toLowerCase().includes((sp.spaceName||'').toLowerCase()))
+  ) || [];
+  let opts = `<option value="space" selected>📦 ${sp.spaceName || 'Space '+sp.spaceNumber}</option>`;
+  if (relatedSurfaces.length > 0) {
+    opts += `<option disabled>── ${L('surface_label')} (${relatedSurfaces.length}) ──</option>`;
+    relatedSurfaces.forEach((surf, i) => {
+      const idx = spacesData.analyticalSurfaces.indexOf(surf);
+      opts += `<option value="surf_${idx}">🧱 ${surf.surfaceName || surf.surfaceType+' '+i}</option>`;
+    });
+  }
+  typeSelect.innerHTML = opts;
+  typeSelect.disabled = relatedSurfaces.length === 0;
+  typeSelect.value = 'space';
+
+  // Handle dropdown change
+  typeSelect.onchange = () => {
+    const val = typeSelect.value;
+    if (val === 'space') {
+      showPropertiesForSpace(guid);
+    } else if (val.startsWith('surf_')) {
+      const surfIdx = parseInt(val.replace('surf_', ''));
+      showPropertiesForSurface(surfIdx);
+      // Keep the dropdown showing this selection
+      typeSelect.value = val;
+    }
+  };
+
+  const md = matchedData.find(m => m.space.guid === guid);
+  const hz = md ? md.htmZone : null;
+  const S = getUnitScale();
+
+  let h = '';
+
+  // --- Dimensions ---
+  const dimRows = [];
+  if (sp.area) dimRows.push([L('prop_area'), fmtArea(sp.area)]);
+  if (sp.volume) dimRows.push([L('prop_volume'), fmtVol(sp.volume)]);
+  if (sp.bboxMin && sp.bboxMax) {
+    const dx = Math.abs(sp.bboxMax[0]-sp.bboxMin[0])*S;
+    const dy = Math.abs(sp.bboxMax[1]-sp.bboxMin[1])*S;
+    const dz = Math.abs(sp.bboxMax[2]-sp.bboxMin[2])*S;
+    dimRows.push([L('prop_width'), fmtLen(dx)]);
+    dimRows.push([L('prop_depth'), fmtLen(dy)]);
+    dimRows.push([L('prop_height'), fmtLen(dz)]);
+  }
+  if (dimRows.length) { h += makeCatHeader(L('cat_dimensions')); h += makePropsTable(dimRows); }
+
+  // --- Identity Data ---
+  const idRows = [];
+  idRows.push([L('prop_name'), sp.spaceName || '—']);
+  if (sp.spaceNumber) idRows.push([L('prop_number'), sp.spaceNumber]);
+  if (sp.guid) idRows.push([L('prop_guid'), `<span style="font-size:.58rem;opacity:.6">${sp.guid}</span>`]);
+  h += makeCatHeader(L('cat_identity'));
+  h += makePropsTable(idRows);
+
+  // --- Spatial Location ---
+  const locRows = [];
+  locRows.push([L('prop_level'), sp.levelName || '—']);
+  if (sp.bboxMin) locRows.push([L('prop_bbox_min'), `[${sp.bboxMin.map(v=>(v*S).toFixed(2)).join(', ')}]`]);
+  if (sp.bboxMax) locRows.push([L('prop_bbox_max'), `[${sp.bboxMax.map(v=>(v*S).toFixed(2)).join(', ')}]`]);
+  h += makeCatHeader(L('cat_location'));
+  h += makePropsTable(locRows);
+
+  // --- Phasing ---
+  h += makeCatHeader(L('cat_phasing'));
+  h += makePropsTable([[L('prop_phase'), 'New Construction']]);
+
+  // --- Energy Analysis ---
+  const eaRows = [];
+  eaRows.push([L('prop_space_type'), sp.spaceType || '—']);
+  eaRows.push([L('prop_conditioned'), sp.conditioned ? 'Yes' : 'No']);
+  if (sp.designOccupancy != null) eaRows.push([L('prop_occupancy'), sp.designOccupancy.toFixed(2)]);
+  if (sp.zoneMatchKey) eaRows.push([L('prop_zone_match'), sp.zoneMatchKey]);
+  if (hz) eaRows.push([L('prop_htm_zone'), `<span style="color:var(--success)">${hz.name}</span>`]);
+  h += makeCatHeader(L('cat_energy_analysis'));
+  h += makePropsTable(eaRows);
+
+  // --- HTM Analytical Properties ---
+  if (hz) {
+    const anRows = [];
+    if (hz.area) anRows.push([L('zone_area'), U(hz.area,'area_ft2')]);
+    if (hz.volume) anRows.push([L('zone_volume'), U(hz.volume,'vol_ft3')]);
+    if (hz.ceilingHeight) anRows.push([L('ceiling_h'), U(hz.ceilingHeight,'len_ft')]);
+    if (hz.grossWallArea) anRows.push([L('ext_wall'), U(hz.grossWallArea,'area_ft2')]);
+    if (hz.windowArea) anRows.push([L('window_area'), U(hz.windowArea,'area_ft2')]);
+    if (anRows.length) { h += makeCatHeader(L('cat_analytical')); h += makePropsTable(anRows); }
+
+    // Internal gains
+    const igRows = [];
+    if (hz.people?.count) igRows.push([L('occupancy'), `${hz.people.count.toFixed(0)} ${L('persons')}`]);
+    if (hz.people?.areaPerPerson) igRows.push([L('area_pp'), currentUnit==='SI' ? (hz.people.areaPerPerson*CONV.ft2_m2).toFixed(1)+' m²' : hz.people.areaPerPerson.toFixed(1)+' ft²']);
+    if (hz.lightingDensity) igRows.push([L('lighting_d'), U(hz.lightingDensity,'density_btuhft2')]);
+    if (hz.plugDensity) igRows.push([L('equip_d'), U(hz.plugDensity,'density_btuhft2')]);
+    if (hz.totalLoadDensity) igRows.push([L('total_load_d'), U(hz.totalLoadDensity,'density_btuhft2')]);
+    if (igRows.length) { h += makeCatHeader(L('cat_internal')); h += makePropsTable(igRows); }
+
+    // Design loads
+    const dlRows = [];
+    if (hz.sizing?.cooling) {
+      dlRows.push([L('cooling_design'), U(hz.sizing.cooling.designLoad/1e3,'load_kbtuh')]);
+      if (hz.sizing.cooling.designAirFlow) dlRows.push([L('cooling_af'), U(hz.sizing.cooling.designAirFlow,'cfm')]);
+      if (hz.sizing.cooling.peakDate) dlRows.push([L('cooling_peak'), hz.sizing.cooling.peakDate]);
+      if (hz.sizing.cooling.peakTemp) dlRows.push([L('peak_temp'), U(hz.sizing.cooling.peakTemp,'temp_F')]);
+    }
+    if (hz.sizing?.heating) {
+      dlRows.push([L('heating_design'), U(hz.sizing.heating.designLoad/1e3,'load_kbtuh')]);
+      if (hz.sizing.heating.designAirFlow) dlRows.push([L('heating_af'), U(hz.sizing.heating.designAirFlow,'cfm')]);
+      if (hz.sizing.heating.peakDate) dlRows.push([L('heating_peak'), hz.sizing.heating.peakDate]);
+    }
+    if (dlRows.length) { h += makeCatHeader(L('cat_sizing')); h += makePropsTable(dlRows); }
+
+    // Infiltration
+    const infRows = [];
+    if (hz.infiltration?.flowRate) infRows.push([L('flow_rate'), U(hz.infiltration.flowRate,'cfm')]);
+    if (hz.infiltration?.ach) infRows.push(['ACH', U(hz.infiltration.ach,'ach')]);
+    if (infRows.length) { h += makeCatHeader(L('cat_infiltration')); h += makePropsTable(infRows); }
+  }
+
+  content.innerHTML = h;
+}
+
+function showPropertiesForSurface(surfIdx) {
+  const panel = document.getElementById('propsPanel');
+  const content = document.getElementById('propsContent');
+  const typeSelect = document.getElementById('propsTypeSelect');
+  const surfData = spacesData?.analyticalSurfaces?.[surfIdx];
+  if (!surfData) { panel.classList.remove('visible'); return; }
+
+  panel.classList.add('visible');
+  document.getElementById('propsIcon').textContent = '🧱';
+
+  // Populate dropdown: show parent space + this surface
+  const parentSpace = spacesData?.spaces?.find(sp => sp.spaceName === surfData.spaceName);
+  let opts = '';
+  if (parentSpace) {
+    opts += `<option value="space_${parentSpace.guid}">📦 ${parentSpace.spaceName}</option>`;
+  }
+  opts += `<option value="surf_${surfIdx}" selected>🧱 ${surfData.surfaceName || surfData.surfaceType}</option>`;
+  typeSelect.innerHTML = opts;
+  typeSelect.disabled = false;
+  typeSelect.value = `surf_${surfIdx}`;
+
+  typeSelect.onchange = () => {
+    const val = typeSelect.value;
+    if (val.startsWith('space_')) {
+      const guid = val.replace('space_', '');
+      selectSpace(guid);
+    } else if (val.startsWith('surf_')) {
+      const idx = parseInt(val.replace('surf_', ''));
+      showPropertiesForSurface(idx);
+    }
+  };
+
+  let h = '';
+
+  // --- Dimensions ---
+  const dimRows = [];
+  // Calculate area from vertices if possible
+  if (surfData.vertices && surfData.vertices.length >= 3) {
+    // Compute polygon area using cross product
+    let area = 0;
+    const verts = surfData.vertices;
+    for (let i = 1; i < verts.length - 1; i++) {
+      const v0 = verts[0], v1 = verts[i], v2 = verts[i+1];
+      const ax = v1[0]-v0[0], ay = v1[1]-v0[1], az = v1[2]-v0[2];
+      const bx = v2[0]-v0[0], by = v2[1]-v0[1], bz = v2[2]-v0[2];
+      const cx = ay*bz - az*by, cy = az*bx - ax*bz, cz = ax*by - ay*bx;
+      area += Math.sqrt(cx*cx + cy*cy + cz*cz);
+    }
+    area /= 2;
+    dimRows.push([L('prop_area'), U(area, 'area_ft2')]);
+  }
+  // Azimuth & Tilt from surface normal
+  if (surfData.vertices && surfData.vertices.length >= 3) {
+    const v0 = surfData.vertices[0], v1 = surfData.vertices[1], v2 = surfData.vertices[2];
+    const ax = v1[0]-v0[0], ay = v1[1]-v0[1], az = v1[2]-v0[2];
+    const bx = v2[0]-v0[0], by = v2[1]-v0[1], bz = v2[2]-v0[2];
+    const nx = ay*bz-az*by, ny = az*bx-ax*bz, nz = ax*by-ay*bx;
+    const len = Math.sqrt(nx*nx+ny*ny+nz*nz);
+    if (len > 0.001) {
+      const nnx=nx/len, nny=ny/len, nnz=nz/len;
+      const tilt = Math.acos(Math.abs(nnz)) * 180 / Math.PI;
+      const azimuth = (Math.atan2(nnx, nny) * 180 / Math.PI + 360) % 360;
+      dimRows.push([L('prop_azimuth'), `${azimuth.toFixed(2)}°`]);
+      dimRows.push([L('prop_tilt'), `${tilt.toFixed(2)}°`]);
+    }
+  }
+  if (dimRows.length) { h += makeCatHeader(L('cat_dimensions')); h += makePropsTable(dimRows); }
+
+  // --- Identity Data ---
+  const idRows = [];
+  idRows.push([L('prop_name'), surfData.surfaceName || '—']);
+  if (surfData.id != null) idRows.push(['ID', surfData.id]);
+  h += makeCatHeader(L('cat_identity'));
+  h += makePropsTable(idRows);
+
+  // --- Phasing ---
+  h += makeCatHeader(L('cat_phasing'));
+  h += makePropsTable([[L('prop_phase'), 'New Construction']]);
+
+  // --- Energy Analysis ---
+  const eaRows = [];
+  eaRows.push([L('prop_surface_type'), surfData.surfaceType || '—']);
+  if (surfData.construction) eaRows.push([L('prop_construction'), surfData.construction]);
+  if (surfData.spaceName) eaRows.push(['Analytical Space', surfData.spaceName]);
+  if (surfData.adjacentSpaceName) eaRows.push([L('prop_adj_space'), surfData.adjacentSpaceName]);
+  if (surfData.originatingElement) eaRows.push([L('prop_originating'), surfData.originatingElement]);
+  eaRows.push([L('prop_vertices'), `${surfData.vertices?.length || 0}`]);
+  h += makeCatHeader(L('cat_energy_analysis'));
+  h += makePropsTable(eaRows);
+
+  // --- Vertex coordinates (collapsed by default) ---
+  if (surfData.vertices && surfData.vertices.length) {
+    const vRows = surfData.vertices.map((v, i) =>
+      [`V${i}`, `[${v.map(c => currentUnit==='SI' ? (c*CONV.ft_m).toFixed(3) : c.toFixed(3)).join(', ')}] ${currentUnit==='SI'?'m':'ft'}`]
+    );
+    h += `<div class="props-cat-header collapsed" onclick="this.classList.toggle('collapsed');this.nextElementSibling.classList.toggle('collapsed')"><span class="cat-chevron">▼</span>Vertex Data</div>`;
+    h += `<table class="props-table collapsed">${vRows.map(([k,v]) => `<tr><td>${k}</td><td style="font-size:.6rem;font-family:monospace">${v}</td></tr>`).join('')}</table>`;
+  }
+
+  content.innerHTML = h;
+}
+
+function selectSurface(surfIdx) {
+  selectedSurface = surfIdx;
+  selectedSpace = null;
+  // Visual highlight
+  surfaceMeshes.forEach((s, i) => {
+    if (s.edges) s.edges.material.opacity = i === surfIdx ? 1 : 0.6;
+    if (i === surfIdx) s.mesh.material.opacity = 0.8;
+    else {
+      const opacity = parseFloat(document.getElementById('surfaceOpacity')?.value || '0.35');
+      s.mesh.material.opacity = opacity;
+    }
+  });
+  spaceMeshes.forEach(s => { s.edges.material.opacity = 0.7; });
+  showPropertiesForSurface(surfIdx);
+  renderSpaceList();
+}
+
+function clearSelection() {
+  selectedSpace = null;
+  selectedSurface = null;
+  document.getElementById('propsPanel').classList.remove('visible');
+  document.getElementById('rightPanel').classList.remove('visible');
+  const surfOpacity = parseFloat(document.getElementById('surfaceOpacity')?.value || '0.35');
+  surfaceMeshes.forEach(s => {
+    if (s.edges) s.edges.material.opacity = 0.6;
+    s.mesh.material.opacity = surfOpacity;
+  });
+  // Restore all space meshes to normal opacity and re-apply colors
+  spaceMeshes.forEach(s => {
+    s.edges.material.opacity = 0.7;
+    s.mesh.renderOrder = 0;
+    s.edges.renderOrder = 0;
+  });
+  updateColors(); // restore original colors and opacity
+  renderSpaceList();
+}
+
+// Properties panel buttons
+setTimeout(() => {
+  document.getElementById('propsClose')?.addEventListener('click', clearSelection);
+  document.getElementById('propsExpand')?.addEventListener('click', () => {
+    const panel = document.getElementById('propsPanel');
+    const btn = document.getElementById('propsExpand');
+    panel.classList.toggle('expanded');
+    btn.classList.toggle('active');
+    btn.textContent = panel.classList.contains('expanded') ? '⇐' : '⇔';
+  });
+}, 0);
+
+// =========================================================
+// [섹션 12] 마우스 상호작용
+// 3D 뷰에서 호버 툴팁과 클릭 선택을 처리합니다.
+// =========================================================
+let hovered = null;
+function onMouseMove(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+
+  // Check spaces first, then analytical surfaces
+  const allInteractable = [
+    ...spaceMeshes.map(s=>s.mesh),
+    ...surfaceMeshes.filter(s=>s.mesh.visible).map(s=>s.mesh)
+  ];
+  const hits = raycaster.intersectObjects(allInteractable);
+  const tt = document.getElementById('tooltip');
+
+  if (hits.length) {
+    const obj = hits[0].object;
+    if (hovered !== obj) {
+      if (hovered) {
+        const p = spaceMeshes.find(s=>s.mesh===hovered);
+        if(p) {
+          // Restore based on selection state
+          if (selectedSpace) {
+            p.edges.material.opacity = (p.space.guid === selectedSpace) ? 1 : 0.15;
+          } else {
+            p.edges.material.opacity = 0.7;
+          }
+        }
+        const ps = surfaceMeshes.find(s=>s.mesh===hovered);
+        if(ps && ps.edges) ps.edges.material.opacity=0.6;
+      }
+      hovered = obj;
+      const c = spaceMeshes.find(s=>s.mesh===obj);
+      if(c) c.edges.material.opacity=1;
+      const cs = surfaceMeshes.find(s=>s.mesh===obj);
+      if(cs && cs.edges) cs.edges.material.opacity=1;
+    }
+
+    let h = '';
+    if (obj.userData.space) {
+      const sp = obj.userData.space;
+      const md = matchedData.find(m=>m.space.guid===sp.guid);
+      const hz = md?md.htmZone:null;
+      h = `<div class="tt-name">${sp.spaceName}</div>`;
+      h += `<div class="tt-row"><span>${sp.levelName}</span><span class="tt-val">${sp.spaceType||'—'}</span></div>`;
+      if (sp.area) h += `<div class="tt-row"><span>Area</span><span class="tt-val">${fmtArea(sp.area)}</span></div>`;
+      if (hz&&hz.totalLoadDensity) h += `<div class="tt-row"><span>Load</span><span class="tt-val">${U(hz.totalLoadDensity,'density_btuhft2')}</span></div>`;
+    } else if (obj.userData.surface) {
+      const surf = obj.userData.surface;
+      h = `<div class="tt-name">🧱 ${surf.surfaceName}</div>`;
+      h += `<div class="tt-row"><span>Type</span><span class="tt-val">${surf.surfaceType}</span></div>`;
+      if (surf.spaceName) h += `<div class="tt-row"><span>Space</span><span class="tt-val">${surf.spaceName}</span></div>`;
+      if (surf.adjacentSpaceName) h += `<div class="tt-row"><span>Adjacent</span><span class="tt-val">${surf.adjacentSpaceName}</span></div>`;
+      h += `<div class="tt-row"><span>Vertices</span><span class="tt-val">${surf.vertices.length}</span></div>`;
+    }
+    tt.innerHTML = h; tt.style.display = 'block';
+    tt.style.left = (e.clientX-rect.left+12)+'px'; tt.style.top = (e.clientY-rect.top+12)+'px';
+    renderer.domElement.style.cursor = 'pointer';
+  } else {
+    if (hovered) {
+      const p = spaceMeshes.find(s=>s.mesh===hovered);
+      if(p) {
+        if (selectedSpace) {
+          p.edges.material.opacity = (p.space.guid === selectedSpace) ? 1 : 0.15;
+        } else {
+          p.edges.material.opacity = 0.7;
+        }
+      }
+      const ps = surfaceMeshes.find(s=>s.mesh===hovered); if(ps && ps.edges) ps.edges.material.opacity=0.6;
+      hovered=null;
+    }
+    tt.style.display = 'none'; renderer.domElement.style.cursor = 'default';
+  }
+}
+function onMouseClick(e) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX-rect.left)/rect.width)*2-1;
+  mouse.y = -((e.clientY-rect.top)/rect.height)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+
+  // Check spaces first
+  const spaceHits = raycaster.intersectObjects(spaceMeshes.map(s=>s.mesh));
+  if (spaceHits.length) {
+    selectSpace(spaceHits[0].object.userData.space.guid);
+    return;
+  }
+
+  // Then check analytical surfaces
+  const surfHits = raycaster.intersectObjects(surfaceMeshes.filter(s=>s.mesh.visible).map(s=>s.mesh));
+  if (surfHits.length) {
+    const surfIdx = surfHits[0].object.userData.surfaceIdx;
+    if (surfIdx != null) selectSurface(surfIdx);
+    return;
+  }
+
+  // Click on empty space → clear selection
+  if (selectedSpace || selectedSurface) {
+    clearSelection();
+  }
+}
+
+// =========================================================
+// [섹션 13] 모델 표시 제어
+// GLB 모델의 불투명/반투명/와이어프레임 모드를 전환합니다.
+// =========================================================
+function updateModelDisplay() {
+  if (!glbGroup) return;
+  const mode = document.getElementById('modelDisplay').value;
+  const op = parseFloat(document.getElementById('modelOpacity').value);
+  glbGroup.visible = mode !== 'hidden';
+  glbGroup.traverse(c => {
+    if (!c.isMesh) return;
+    (Array.isArray(c.material)?c.material:[c.material]).forEach(m => {
+      if (mode==='solid') { m.transparent=false; m.opacity=1; m.wireframe=false; m.depthWrite=true; }
+      else if (mode==='transparent') { m.transparent=true; m.opacity=op; m.wireframe=false; m.depthWrite=false; }
+      else if (mode==='wireframe') { m.transparent=true; m.opacity=0.5; m.wireframe=true; m.depthWrite=false; }
+    });
+  });
+}
+
+// =========================================================
+// [섹션 14] 뷰포트 도구 모음 버튼
+// Reset, Model, Spaces, Surfaces, Axes, Labels 토글을 처리합니다.
+// =========================================================
+document.getElementById('btnReset').onclick = () => {
+  if (glbGroup) {
+    const s = new THREE.Box3().setFromObject(glbGroup).getSize(new THREE.Vector3());
+    const d = Math.max(s.x,s.y,s.z)*1.5;
+    controls.target.set(0,s.y*0.3,0); camera.position.set(d*0.7,d*0.5,d*0.9); controls.update();
+  } else fitCameraToSpaces();
+};
+document.getElementById('btnModel').onclick = () => {
+  if(!glbGroup) return;
+  glbGroup.visible = !glbGroup.visible;
+  document.getElementById('btnModel').classList.toggle('active', glbGroup.visible);
+};
+document.getElementById('btnSpaces').onclick = () => {
+  spacesVisible = !spacesVisible;
+  spaceMeshes.forEach(s => { s.mesh.visible=spacesVisible; s.edges.visible=spacesVisible; });
+  labelSprites.forEach(s => { s.visible = spacesVisible && showLabels; });
+  document.getElementById('btnSpaces').classList.toggle('active', spacesVisible);
+};
+document.getElementById('btnSurfaces').onclick = () => {
+  surfacesVisible = !surfacesVisible;
+  surfaceMeshes.forEach(s => {
+    s.mesh.visible = surfacesVisible;
+    if (s.edges) s.edges.visible = surfacesVisible;
+  });
+  updateSurfaceDisplay();
+  document.getElementById('btnSurfaces').classList.toggle('active', surfacesVisible);
+};
+document.getElementById('btnAxes').onclick = () => {
+  showAxes = !showAxes; axesHelper.visible = showAxes;
+  document.getElementById('btnAxes').classList.toggle('active', showAxes);
+};
+document.getElementById('btnLabels').onclick = () => {
+  showLabels = !showLabels;
+  labelSprites.forEach(s => { s.visible = showLabels && spacesVisible; });
+  document.getElementById('btnLabels').classList.toggle('active', showLabels);
+};
+
+// =========================================================
+// [섹션 15] 설정 컨트롤 이벤트
+// 색상 기준, 투명도, 와이어프레임 등 UI 컨트롤을 연결합니다.
+// =========================================================
+document.getElementById('colorMetric').onchange = () => { updateColors(); renderSpaceList(); };
+document.getElementById('opacitySlider').oninput = () => {
+  const v = parseFloat(document.getElementById('opacitySlider').value);
+  spaceMeshes.forEach(s => {
+    if (selectedSpace) {
+      const isSel = s.space.guid === selectedSpace;
+      s.mesh.material.opacity = isSel ? Math.min(v * 2.5, 0.85) : v * 0.15;
+    } else {
+      s.mesh.material.opacity = v;
+    }
+  });
+};
+document.getElementById('wireframeToggle').onchange = updateColors;
+document.getElementById('validOnlyToggle').onchange = () => { buildSpaces(); if(getActiveHTM()) matchZones(); };
+document.getElementById('modelDisplay').onchange = updateModelDisplay;
+document.getElementById('modelOpacity').oninput = () => {
+  if (document.getElementById('modelDisplay').value==='transparent') updateModelDisplay();
+};
+document.getElementById('surfaceDisplay').onchange = updateSurfaceDisplay;
+document.getElementById('surfaceOpacity').oninput = updateSurfaceDisplay;
+document.getElementById('unitSelect').onchange = () => { if (selectedSpace) showDetail(selectedSpace); renderSpaceList(); renderAnalysisSummary(); };
+document.getElementById('closeRight').onclick = () => { clearSelection(); };
+
+// =========================================================
+// [섹션 16] 단위/언어 토글 + UI 새로고침
+// IP↔SI, 한국어↔English 전환 시 모든 텍스트와 값을 업데이트합니다.
+// =========================================================
+function refreshUI() {
+  // Update html lang attribute
+  document.documentElement.lang = currentLang;
+
+  // Safe text setter (null-safe)
+  const setTxt = (id, key) => { const el = document.getElementById(id); if (el) el.textContent = L(key); };
+
+  // Update static labels (safe — h3 elements may have been replaced by initPanels)
+  setTxt('headerSubtitle', 'subtitle');
+  setTxt('labelGLB', 'glb_title');
+  setTxt('labelJSON', 'json_title');
+  setTxt('labelHTM', 'htm_title');
+  setTxt('labelAnalysis', 'analysis_title');
+
+  // Collapsible panel header titles (these replace the removed h3s)
+  document.querySelectorAll('.panel-header .panel-title').forEach(el => {
+    const key = el.dataset.langKey;
+    if (key) el.textContent = L(key);
+  });
+
+  // Drop box default labels (only if not loaded)
+  const dg = document.getElementById('dropGLB');
+  if (dg && !dg.classList.contains('loaded') && !dg.classList.contains('error')) {
+    const lbl = dg.querySelector('.label'); if (lbl) lbl.textContent = L('glb_drop');
+  }
+  const dj = document.getElementById('dropJSON');
+  if (dj && !dj.classList.contains('loaded') && !dj.classList.contains('error')) {
+    const lbl = dj.querySelector('.label'); if (lbl) lbl.textContent = L('json_drop');
+  }
+  const dh = document.getElementById('dropHTM');
+  if (dh && !dh.classList.contains('loaded') && !dh.classList.contains('error')) {
+    const lbl = dh.querySelector('.label'); if (lbl) lbl.textContent = L('htm_drop');
+  }
+
+  // Control labels
+  setTxt('lbl_model','model_label'); setTxt('lbl_mopacity','model_opacity');
+  setTxt('lbl_colorby','color_by');
+  setTxt('lbl_sopacity','space_opacity'); setTxt('lbl_wire','wireframe');
+  setTxt('lbl_valid','valid_only'); setTxt('lbl_surf','surface_label');
+  setTxt('lbl_sfopacity','surface_opacity');
+
+  // Select options
+  setTxt('opt_solid','model_solid'); setTxt('opt_trans','model_transparent');
+  setTxt('opt_wire','model_wireframe'); setTxt('opt_hide','model_hidden');
+  setTxt('cm_st','color_spaceType'); setTxt('cm_lv','color_level');
+  setTxt('cm_ar','color_area'); setTxt('cm_vo','color_volume');
+  setTxt('cm_co','color_conditioned'); setTxt('cm_ld','color_lightingDensity');
+  setTxt('cm_pd','color_plugDensity'); setTxt('cm_tl','color_totalLoad');
+  setTxt('cm_cl','color_coolingLoad'); setTxt('cm_hl','color_heatingLoad');
+  setTxt('sf_col','surf_colored'); setTxt('sf_wire','surf_wire'); setTxt('sf_hide','surf_hidden');
+
+  // Welcome overlay
+  const wc = document.querySelector('.welcome-card');
+  if (wc) {
+    const h2 = wc.querySelector('h2'); if (h2) h2.textContent = `🏢 ${L('welcome_title')}`;
+    const firstP = wc.querySelector('p'); if (firstP) firstP.innerHTML = L('welcome_desc');
+    const steps = wc.querySelectorAll('.step-text');
+    if (steps[0]) steps[0].innerHTML = L('step1');
+    if (steps[1]) steps[1].innerHTML = L('step2');
+    if (steps[2]) steps[2].innerHTML = L('step3');
+    const tip = wc.querySelector('p:last-child');
+    if (tip && tip !== firstP) tip.innerHTML = L('step_tip');
+  }
+
+  // Match status
+  const ms = document.getElementById('matchStatus');
+  if (ms && !spacesData) ms.textContent = L('match_load');
+
+  // HTM detail section title
+  const htmDT = document.getElementById('htmDetailTitle');
+  if (htmDT) htmDT.textContent = `🔗 ${L('energy_data')}`;
+
+  // Re-render dynamic content (analysis tabs, space list, detail panels)
+  try { renderAnalysisSummary(); } catch(e) { console.warn('refreshUI: renderAnalysisSummary error', e); }
+  if (spacesData) { try { renderSpaceList(); } catch(e) { console.warn('refreshUI: renderSpaceList error', e); } }
+  if (selectedSpace) {
+    try { showDetail(selectedSpace); } catch(e) { console.warn('refreshUI: showDetail error', e); }
+    try { showPropertiesForSpace(selectedSpace); } catch(e) { console.warn('refreshUI: showProps error', e); }
+  }
+  if (selectedSurface != null) {
+    try { showPropertiesForSurface(selectedSurface); } catch(e) { console.warn('refreshUI: showSurfProps error', e); }
+  }
+
+  // Update panel body max-heights for dynamic content
+  document.querySelectorAll('.panel-body:not(.collapsed)').forEach(body => {
+    body.style.maxHeight = body.scrollHeight + 500 + 'px';
+  });
+}
+
+// Toggle event setup
+function setupToggles() {
+  // 단위 토글 (SI/IP)
+  document.getElementById('unitToggle').addEventListener('click', e => {
+    const btn = e.target.closest('.toggle-btn');
+    if (!btn || btn.classList.contains('active')) return;
+    currentUnit = btn.dataset.val;
+    document.querySelectorAll('#unitToggle .toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+    refreshUI();
+  });
+
+  // 언어 토글 (ko/en)
+  document.getElementById('langToggle').addEventListener('click', e => {
+    const btn = e.target.closest('.toggle-btn');
+    if (!btn || btn.classList.contains('active')) return;
+    currentLang = btn.dataset.val;
+    document.querySelectorAll('#langToggle .toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+    refreshUI();
+  });
+}
+
+// =========================================================
+// [섹션 17] 접기/펼치기 + 드래그 패널
+// 사이드바 패널들의 접기/펼치기와 순서 변경을 구현합니다.
+// =========================================================
+function initPanels() {
+  const panelConfigs = [
+    { el: document.getElementById('sectionGLB'), key: 'glb_title', icon: '🏗️' },
+    { el: document.getElementById('sectionJSON'), key: 'json_title', icon: '📦' },
+    { el: document.getElementById('sectionHTM'), key: 'htm_title', icon: '📊' },
+    { el: document.getElementById('analysisSection'), key: 'analysis_title', icon: '📈' },
+    { el: document.getElementById('controlsSection'), key: 'controls_title', icon: '⚙️' },
+  ];
+
+  panelConfigs.forEach(cfg => {
+    if (!cfg.el) return;
+    const section = cfg.el;
+    section.classList.add('panel-section');
+
+    // Remove existing h3 title (it's replaced by panel header)
+    const existingH3 = section.querySelector(':scope > h3');
+
+    // Create panel header
+    const header = document.createElement('div');
+    header.className = 'panel-header';
+    header.innerHTML = `<span class="panel-chevron">▼</span><span class="panel-title" data-lang-key="${cfg.key}">${L(cfg.key)}</span><span class="drag-handle" title="Drag to reorder">⠿</span>`;
+
+    // Create panel body wrapper
+    const body = document.createElement('div');
+    body.className = 'panel-body';
+
+    // Move existing children (except the h3 title) into body
+    const children = Array.from(section.children);
+    children.forEach(child => {
+      if (child === existingH3) return;
+      body.appendChild(child);
+    });
+    if (existingH3) existingH3.remove();
+
+    // Insert header and body
+    section.prepend(body);
+    section.prepend(header);
+
+    // Set initial max-height
+    requestAnimationFrame(() => {
+      body.style.maxHeight = body.scrollHeight + 500 + 'px';
+    });
+
+    // Collapse/expand
+    header.addEventListener('click', e => {
+      if (e.target.closest('.drag-handle')) return;
+      const isCollapsed = header.classList.toggle('collapsed');
+      if (isCollapsed) {
+        body.classList.add('collapsed');
+      } else {
+        body.classList.remove('collapsed');
+        body.style.maxHeight = body.scrollHeight + 500 + 'px';
+      }
+    });
+
+    // Drag to reorder
+    const handle = header.querySelector('.drag-handle');
+    handle.addEventListener('mousedown', e => {
+      e.stopPropagation();
+      section.setAttribute('draggable', 'true');
+    });
+    section.addEventListener('dragstart', e => {
+      section.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', cfg.key);
+    });
+    section.addEventListener('dragend', () => {
+      section.classList.remove('dragging');
+      section.removeAttribute('draggable');
+      document.querySelectorAll('.panel-section').forEach(s => {
+        s.classList.remove('drag-over-above','drag-over-below');
+      });
+    });
+    section.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      const rect = section.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      section.classList.remove('drag-over-above','drag-over-below');
+      if (e.clientY < mid) section.classList.add('drag-over-above');
+      else section.classList.add('drag-over-below');
+    });
+    section.addEventListener('dragleave', () => {
+      section.classList.remove('drag-over-above','drag-over-below');
+    });
+    section.addEventListener('drop', e => {
+      e.preventDefault();
+      section.classList.remove('drag-over-above','drag-over-below');
+      const dragging = document.querySelector('.panel-section.dragging');
+      if (!dragging || dragging === section) return;
+      const rect = section.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      const parent = section.parentNode;
+      if (e.clientY < mid) {
+        parent.insertBefore(dragging, section);
+      } else {
+        parent.insertBefore(dragging, section.nextSibling);
+      }
+    });
+  });
+
+  // Also make the space list area a panel-like section
+  const spList = document.getElementById('spaceList');
+  if (spList) {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'panel-section';
+    wrapper.id = 'sectionSpaceList';
+    wrapper.setAttribute('data-panel-key', 'spaces');
+    const spHeader = document.createElement('div');
+    spHeader.className = 'panel-header';
+    spHeader.innerHTML = `<span class="panel-chevron">▼</span><span class="panel-title" data-lang-key="spaces_title">${L('spaces_title')}</span>`;
+    spList.parentNode.insertBefore(wrapper, spList);
+    wrapper.appendChild(spHeader);
+    wrapper.appendChild(spList);
+
+    spHeader.addEventListener('click', () => {
+      const collapsed = spHeader.classList.toggle('collapsed');
+      spList.style.display = collapsed ? 'none' : '';
+    });
+  }
+}
+
+// Run setup after DOM is ready
+setTimeout(() => {
+  setupToggles();
+  initPanels();
+}, 0);
+
+// =========================================================
+// [섹션 18] 초기화 — 드롭존 연결 + 이벤트 바인딩
+// 모든 파일 입력 영역을 설정하고 앱을 시작합니다.
+// =========================================================
+setupDrop('dropGLB', 'inputGLB', handleGLB);
+setupDrop('dropJSON', 'inputJSON', handleJSON);
+// HTM: support multiple files
+{
+  const box = document.getElementById('dropHTM');
+  const input = document.getElementById('inputHTM');
+  box.addEventListener('click', () => input.click());
+  box.addEventListener('dragenter', e => { e.preventDefault(); box.classList.add('drag-over'); });
+  box.addEventListener('dragover', e => { e.preventDefault(); box.classList.add('drag-over'); });
+  box.addEventListener('dragleave', e => { e.preventDefault(); box.classList.remove('drag-over'); });
+  box.addEventListener('drop', e => {
+    e.preventDefault(); box.classList.remove('drag-over');
+    for (const f of e.dataTransfer.files) { if (f.name.match(/\.html?$/i)) handleHTM(f, box); }
+  });
+  input.addEventListener('change', () => {
+    for (const f of input.files) handleHTM(f, box);
+    input.value = '';
+  });
+}
+
+</script>
+</body>
+</html>
