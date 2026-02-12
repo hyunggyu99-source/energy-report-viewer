@@ -15,7 +15,10 @@ https://github.com/hyunggyu99-source/energy-report-viewer/blob/master/README.md
 1. 보고서 비교 대시보드 — HTM 보고서를 드롭하면 차트/테이블로 자동 비교
 2. 3D 에너지 뷰어 — Revit Space와 에너지 보고서 Zone을 3D로 매칭
 
-자세한 설명은 README에 있고, 데모 파일 + 영상도 함께 첨부합니다.
+▶ 1번 웹 데모 (브라우저에서 바로 확인 가능)
+https://catsony5-web.github.io/Revit-Study-Personal/annual-building-systems/
+
+자세한 설명은 README에 있고, 2번 데모 파일 + 영상도 함께 첨부합니다.
 ```
 
 ---
