@@ -124,14 +124,12 @@ flowchart TD
 **3D 뷰 조작 + 히트맵 색상 변경**  
 3D 뷰 기본 조작(회전/줌)과 색상 기준(냉방부하, 층, 면적 등)에 따라 Space 색상이 히트맵으로 변하는 모습
 
-https://github.com/user-attachments/assets/placeholder-video-1
+https://github.com/hyunggyu99-source/energy-report-viewer/releases/download/v0.1-demo/Energy_3D_Viewer1.mp4
 
 **Space 클릭 → 에너지 보고서 매칭**  
 각 Space를 클릭하면 에너지해석 보고서의 상세값(Zone 면적, 체적, 조명밀도, 냉난방 설계부하 등)이 해당 Space에 맞게 표시되는 모습
 
-https://github.com/user-attachments/assets/placeholder-video-2
-
-> 영상 링크는 GitHub에 업로드 후 실제 URL로 교체 예정
+https://github.com/hyunggyu99-source/energy-report-viewer/releases/download/v0.1-demo/Energy_3D_Viewer2.mp4
 
 ---
 
